@@ -16,6 +16,10 @@ def parse_rst(filename, g, parent, colors):
         elif line.startswith(':proves:'):
             target = line.split()[1]
             g.setdefault(node, {})[target] = dict(label='proves') # add edge
+        elif line.startswith(':motivates:'):
+            target = line.split()[1]
+            g.setdefault(node, {})[target] = dict(label='motivates',
+                                                  color='yellow') # add edge
         elif line.startswith(':depends:'):
             sources = line.split()[1].split(',')
             for source in sources:
