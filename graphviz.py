@@ -1,6 +1,8 @@
 import glob
 
-def parse_rst(filename, g, parent, colors):
+def parse_rst(filename, g, parent, colors,
+              colorDict=dict(motivates='yellow', illustrates='orange',
+                             tests='green')):
     ifile = open(filename)
     for line in ifile:
         line = line.strip()
@@ -12,7 +14,27 @@ def parse_rst(filename, g, parent, colors):
             colors[node] = 'black'
         elif line.startswith(':link:'):
             source, relation, target = line.split()[1:]
-            g.setdefault(source, {})[target] = dict(label=title)
+            relation = relation[1:-1]
+            if node not in g:
+                g.setdefault(node, {}) # add node to graph
+                parent[node] = source
+                if source not in g:
+                    g.setdefault(source, {}) # add node to graph
+                    colors[source] = 'gray'
+                source = node
+                label = relation
+                try:
+                    colors[node] = colorDict[relation]
+                except KeyError:
+                    pass
+            else:
+                label = title
+            edgeDict = dict(label=label)
+            try:
+                edgeDict['color'] = colorDict[relation]
+            except KeyError:
+                pass
+            g.setdefault(source, {})[target] = edgeDict
         elif line.startswith(':proves:'):
             target = line.split()[1]
             g.setdefault(node, {})[target] = dict(label='proves') # add edge
