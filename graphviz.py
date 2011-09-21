@@ -1,13 +1,40 @@
 import glob
 
+class Section(object):
+    ''
+    def __init__(self, title):
+        self.title = title
+        self.text = title + '\n' + '-' * len(title) + '\n'
+        self.lastline = ''
+        self.metadata = []
+
+    def add_metadata(self, *args):
+        self.metadata.append(args)
+
+    def add_text(self, text):
+        self.text += self.lastline
+        self.lastline = text
+
+    def drop_lastline(self):
+        self.lastline = ''
+
+    def __str__(self):
+        return self.text + self.lastline
+
 def parse_rst(filename, g, parent, colors,
               colorDict=dict(motivates='yellow', illustrates='orange',
                              tests='green')):
     ifile = open(filename)
-    for line in ifile:
-        line = line.strip()
+    l = []
+    section = None
+    for rawline in ifile:
+        line = rawline.strip()
         if len(line) > 1 and line == '-' * len(line): # section start
+            if section: # last line is NOT part of previous section
+                section.drop_lastline()
             node = title = lastLine
+            section = Section(title)
+            l.append(section)
         elif line.startswith(':defines:'):
             node = line.split()[1]
             g.setdefault(node, {}) # add node to graph
@@ -66,9 +93,73 @@ def parse_rst(filename, g, parent, colors,
             targets = line.split()[1].split(',')
             for target in targets:
                 parent[target] = node
+        elif l: # in a section, so append to its text, preserving whitespace
+            section.add_text(rawline)
         lastLine = line
     ifile.close()
-    
+    return l
+
+def filter_files(rulefile, outfile):
+    'compile output from rst sources by filtering with rulefile'
+    ifile = open(rulefile, 'rU')
+    ofile = open(outfile, 'w')
+    sections = None
+    try:
+        for rawline in ifile:
+            line = rawline.strip()
+            if line[0] == rawline[0]: # file path to filter
+                if sections:
+                    apply_filters(ofile, sections, filters)
+                sections = parse_rst(line, {}, {}, {})
+                filters = []
+            else:
+                filters.append(line)
+        if sections:
+            apply_filters(ofile, sections, filters)
+    finally:
+        ofile.close()
+        ifile.close()
+
+def apply_filters(ofile, sections, filters):
+    'output selected sections using simple filter rules'
+    it = iter(filters)
+    for f in it:
+        if f.startswith('('): # begins an inclusion block
+            start = f[1:]
+            skip = []
+            for f in it:
+                if f.startswith('-'): # a section title to skip
+                    skip.append(f[1:])
+                elif f.startswith(')'): # ends an inclusion block
+                    stop = f[1:]
+                    break
+                else:
+                    raise ValueError('unexpected label in (block): ' + f)
+            for i,s in enumerate(sections):
+                if s.title.startswith(start):
+                    break
+            if i >= len(sections):
+                raise ValueError('(block) start not found: ' + start)
+            for s in sections[i:]:
+                if s.title.startswith(stop):
+                    break
+                show = True
+                for t in skip:
+                    if s.title.startswith(t):
+                        show = False
+                        break
+                if show:
+                    ofile.write(str(s))
+        else: # just a regular title filter
+            notFound = True
+            for s in sections:
+                if s.title.startswith(f):
+                    ofile.write(str(s))
+                    notFound = False
+            if notFound:
+                raise ValueError('no match for title: ' + f)
+        
+                    
 def parse_files(path='*.rst'):
     g = {}
     parent = {}
