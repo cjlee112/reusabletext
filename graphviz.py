@@ -1,10 +1,12 @@
+import re
 import glob
+import csv
 
 class Section(object):
     ''
     def __init__(self, title):
         self.title = title
-        self.text = title + '\n' + '-' * len(title) + '\n'
+        self.text = ''
         self.lastline = ''
         self.metadata = []
 
@@ -15,11 +17,16 @@ class Section(object):
         self.text += self.lastline
         self.lastline = text
 
+    def get_text(self):
+        return self.text + self.lastline
+
     def drop_lastline(self):
         self.lastline = ''
 
     def __str__(self):
-        return self.text + self.lastline
+        'return restructured text with title'
+        return self.title + '\n' + '-' * len(self.title) + '\n' \
+               + self.text + self.lastline
 
 def parse_rst(filename, g, parent, colors,
               colorDict=dict(motivates='yellow', illustrates='orange',
@@ -158,7 +165,89 @@ def apply_filters(ofile, sections, filters):
                     notFound = False
             if notFound:
                 raise ValueError('no match for title: ' + f)
-        
+
+def line_iter(s):
+    i = 0
+    j = s.find('\n')
+    while j >= 0:
+        yield s[i:j + 1]
+        i = j + 1
+        j = s.find('\n', i)
+    if i < len(s):
+        yield s[i:]
+
+def parse_directive(line):
+    dlabel = line.split(':')[0]
+    try:
+        content = line[line.index('::') + 2:] + '\n'
+    except ValueError: # just a comment, not a directive
+        return None
+    return content, (dlabel,)
+
+def question_html(content, directive):
+    if directive == 'figure':
+        return '<IMG SRC="%s">\n' % content.split('\n')[0]
+    elif directive == 'math':
+        return '$$%s$$\n' % content
+
+def list_html(content):
+    return '<LI>' + content + '</LI>\n'
+
+def replace_block(s, start, parsefunc, subfunc, **kwargs):
+    it = line_iter(s)
+    rawline = it.next()
+    t = ''
+    while True:
+        line = rawline.strip()
+        if line.startswith(start):
+            offset = rawline.find(line[0])
+            rawline = None
+            result = parsefunc(line[len(start):])
+            if result:
+                content, args = result
+                for rawline in it: # read the entire block
+                    if rawline[offset].isspace(): # inside block
+                        content += rawline
+                        rawline = None
+                    else: # end of block
+                        break
+                t += subfunc(content, *args, **kwargs) # perform substitution
+        else: # just append regular text
+            t += rawline
+            rawline = None
+        if not rawline: # need to read another line
+            try:
+                rawline = it.next()
+            except StopIteration:
+                break
+    return t
+
+def echo_line(line):
+    return line, ()
+
+def append_choice(content, choices):
+    choices.append(content)
+    return ''
+
+def make_questions_csv(rstfile, csvfile, imagetag='Draw a'):
+    questions = parse_rst(rstfile, {}, {}, {})
+    ofile = open(csvfile, 'w')
+    writer = csv.writer(ofile)
+    for q in questions:
+        s = q.get_text()
+        s = re.sub(r':math:`([^`]*)`', r'\(\1\)', s)
+        s = replace_block(s, '.. ', parse_directive, question_html)
+        s = replace_block(s, '* ', echo_line, list_html)
+        if s.find('#. ') >= 0:
+            choices = []
+            s = replace_block(s, '#. ', echo_line, append_choice,
+                              choices=choices)
+            writer.writerow(('mc', q.title, s) + tuple(choices))
+        elif s.find(imagetag) >= 0:
+            writer.writerow(('image', q.title, s))
+        else:
+            writer.writerow(('text', q.title, s))
+    ofile.close()
                     
 def parse_files(path='*.rst'):
     g = {}
