@@ -10,8 +10,16 @@ class Section(object):
         self.lastline = ''
         self.metadata = []
 
-    def add_metadata(self, *args):
-        self.metadata.append(args)
+    def add_metadata(self, label, data):
+        self.metadata.append((label, data))
+
+    def get_metadata(self, label, *args):
+        for tag, data in self.metadata:
+            if tag == label:
+                return data
+        if len(args) > 0: # caller provided a default value, so return it
+            return args[0]
+        raise KeyError('metadata not found: ' + label)
 
     def add_text(self, text):
         self.text += self.lastline
@@ -28,13 +36,18 @@ class Section(object):
         return self.title + '\n' + '-' * len(self.title) + '\n' \
                + self.text + self.lastline
 
+def add_metadata(section, label, *args):
+    if section:
+        section.add_metadata(label, *args)
+
 def parse_rst(filename, g, parent, colors,
               colorDict=dict(motivates='yellow', illustrates='orange',
                              tests='green')):
     ifile = open(filename)
     l = []
     section = None
-    for rawline in ifile:
+    it = iter(ifile)
+    for rawline in it:
         line = rawline.strip()
         if len(line) > 1 and line == '-' * len(line): # section start
             if section: # last line is NOT part of previous section
@@ -46,6 +59,7 @@ def parse_rst(filename, g, parent, colors,
             node = line.split()[1]
             g.setdefault(node, {}) # add node to graph
             colors[node] = 'black'
+            add_metadata(section, 'defines', node)
         elif line.startswith(':link:'):
             source, relation, target = line.split()[1:]
             relation = relation[1:-1]
@@ -72,10 +86,12 @@ def parse_rst(filename, g, parent, colors,
         elif line.startswith(':proves:'):
             target = line.split()[1]
             g.setdefault(node, {})[target] = dict(label='proves') # add edge
+            add_metadata(section, 'proves', target)
         elif line.startswith(':motivates:'):
             target = line.split()[1]
             g.setdefault(node, {})[target] = dict(label='motivates',
                                                   color='yellow') # add edge
+            add_metadata(section, 'motivates', target)
         elif line.startswith(':depends:'):
             sources = line.split()[1].split(',')
             for source in sources:
@@ -84,50 +100,65 @@ def parse_rst(filename, g, parent, colors,
                 except KeyError:                    
                     g.setdefault(source, {})[node] = dict(label='depends')
                     colors[source] = 'gray'
+            add_metadata(section, 'depends', sources)
         elif line.startswith(':tests:'):
             colors[node] = 'green'
             targets = line.split()[1].split(',')
             for target in targets:
                 g.setdefault(node, {})[target] = dict(label='tests',
                                                       color='green')
+            add_metadata(section, 'tests', targets)
         elif line.startswith(':violates:'):
             colors[node] = 'red'
             targets = line.split()[1].split(',')
             for target in targets:
                 g.setdefault(node, {})[target] = dict(label='violates',
                                                       color='red')
+            add_metadata(section, 'violates', targets)
         elif line.startswith(':contains:'):
             targets = line.split()[1].split(',')
             for target in targets:
                 parent[target] = node
+            add_metadata(section, 'contains', targets)
+        elif line.startswith(':answer:'):
+            add_metadata(section, 'answer', line[9:])
+        elif line.startswith(':start-answer:'):
+            answer = line[15:]
+            for rawline in it:
+                line = rawline.strip()
+                if line.startswith(':end-answer:'):
+                    break
+                else:
+                    answer += line
+            add_metadata(section, 'answer', answer)
         elif l: # in a section, so append to its text, preserving whitespace
             section.add_text(rawline)
         lastLine = line
     ifile.close()
     return l
 
-def filter_files(rulefile, outfile):
-    'compile output from rst sources by filtering with rulefile'
+def filter_files(rulefile):
+    'generate selected sections from rst sources by filtering with rulefile'
     ifile = open(rulefile, 'rU')
-    ofile = open(outfile, 'w')
     sections = None
     try:
         for rawline in ifile:
             line = rawline.strip()
             if line[0] == rawline[0]: # file path to filter
                 if sections:
-                    apply_filters(ofile, sections, filters)
+                    for s in apply_filters(sections, filters):
+                        yield s
                 sections = parse_rst(line, {}, {}, {})
                 filters = []
             else:
                 filters.append(line)
         if sections:
-            apply_filters(ofile, sections, filters)
+            for s in apply_filters(sections, filters):
+                yield s
     finally:
-        ofile.close()
         ifile.close()
 
-def apply_filters(ofile, sections, filters):
+def apply_filters(sections, filters):
     'output selected sections using simple filter rules'
     it = iter(filters)
     for f in it:
@@ -156,15 +187,23 @@ def apply_filters(ofile, sections, filters):
                         show = False
                         break
                 if show:
-                    ofile.write(str(s))
+                    yield s
         else: # just a regular title filter
             notFound = True
             for s in sections:
                 if s.title.startswith(f):
-                    ofile.write(str(s))
+                    yield s
                     notFound = False
             if notFound:
                 raise ValueError('no match for title: ' + f)
+
+def write_rst_sections(path, sections):
+    'output sections in reST format'
+    ofile = open(path, 'w')
+    for s in sections:
+        ofile.write(str(s))
+    ofile.close()
+
 
 def line_iter(s):
     i = 0
@@ -195,7 +234,10 @@ def list_html(content):
 
 def replace_block(s, start, parsefunc, subfunc, **kwargs):
     it = line_iter(s)
-    rawline = it.next()
+    try:
+        rawline = it.next()
+    except StopIteration:
+        return ''
     t = ''
     while True:
         line = rawline.strip()
@@ -226,27 +268,48 @@ def echo_line(line):
     return line, ()
 
 def append_choice(content, choices):
-    choices.append(content)
+    choices.append(' '.join(content.split('\n')))
     return ''
 
-def make_questions_csv(rstfile, csvfile, imagetag='Draw a'):
-    questions = parse_rst(rstfile, {}, {}, {})
+def trivial_html(s):
+    s = re.sub(r':math:`([^`]*)`', r'\(\1\)', s)
+    s = replace_block(s, '.. ', parse_directive, question_html)
+    s = replace_block(s, '* ', echo_line, list_html)
+    return s
+
+def replace_newlines(s):
+    s = s.strip()
+    l = s.split('\n') # replace newlines with space and <BR>
+    result = []
+    empty = False
+    for s in l:
+        if s == '':
+            empty = True
+        else:
+            if empty: # paragraph separator
+                result.append('<BR><BR>')
+                empty = False
+            result.append(s)
+    return ' '.join(result)
+
+def save_question_csv(questions, csvfile, imagetag='Draw a'):
     ofile = open(csvfile, 'w')
     writer = csv.writer(ofile)
     for q in questions:
         s = q.get_text()
-        s = re.sub(r':math:`([^`]*)`', r'\(\1\)', s)
-        s = replace_block(s, '.. ', parse_directive, question_html)
-        s = replace_block(s, '* ', echo_line, list_html)
-        if s.find('#. ') >= 0:
-            choices = []
-            s = replace_block(s, '#. ', echo_line, append_choice,
-                              choices=choices)
-            writer.writerow(('mc', q.title, s) + tuple(choices))
+        s = trivial_html(s)
+        choices = []
+        s = replace_block(s, '#. ', echo_line, append_choice, choices=choices)
+        s = replace_newlines(s)
+        answer = q.get_metadata('answer', '')
+        answer = trivial_html(answer)
+        answer = replace_newlines(answer)
+        if choices:
+            writer.writerow(('mc', q.title, s, answer) + tuple(choices))
         elif s.find(imagetag) >= 0:
-            writer.writerow(('image', q.title, s))
+            writer.writerow(('image', q.title, s, answer))
         else:
-            writer.writerow(('text', q.title, s))
+            writer.writerow(('text', q.title, s, answer))
     ofile.close()
                     
 def parse_files(path='*.rst'):
