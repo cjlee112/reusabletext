@@ -123,13 +123,13 @@ def parse_rst(filename, g, parent, colors,
         elif line.startswith(':answer:'):
             add_metadata(section, 'answer', line[9:])
         elif line.startswith(':start-answer:'):
-            answer = line[15:]
+            answer = line[15:] + '\n'
             for rawline in it:
                 line = rawline.strip()
                 if line.startswith(':end-answer:'):
                     break
                 else:
-                    answer += line
+                    answer += rawline
             add_metadata(section, 'answer', answer)
         elif l: # in a section, so append to its text, preserving whitespace
             section.add_text(rawline)
@@ -201,7 +201,9 @@ def write_rst_sections(path, sections):
     'output sections in reST format'
     ofile = open(path, 'w')
     for s in sections:
-        ofile.write(str(s))
+        t = str(s)
+        t = re.sub(':correct:', '', t) # remove metadata tags
+        ofile.write(t)
     ofile.close()
 
 
@@ -305,7 +307,17 @@ def save_question_csv(questions, csvfile, imagetag='Draw a'):
         answer = trivial_html(answer)
         answer = replace_newlines(answer)
         if choices:
-            writer.writerow(('mc', q.title, s, answer) + tuple(choices))
+            correct = None
+            for i,c in enumerate(choices):
+                j = c.find(':correct:') 
+                if j >= 0:
+                    choices[i] = c[:j] + c[j + 9:]
+                    correct = i
+                    break
+            if correct is None:
+                raise ValueError('multiple-choice question "%s" not tagged with :correct: answer!'
+                                 % q.title)
+            writer.writerow(('mc', q.title, s, answer, correct) + tuple(choices))
         elif s.find(imagetag) >= 0:
             writer.writerow(('image', q.title, s, answer))
         else:
