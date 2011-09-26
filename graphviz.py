@@ -137,6 +137,14 @@ def parse_rst(filename, g, parent, colors,
     ifile.close()
     return l
 
+def filter_questions(sections):
+    'return a list of questions with the :tests: metadata tag'
+    l = []
+    for s in sections:
+        if s.get_metadata('tests', False):
+            l.append(s)
+    return l
+
 def filter_files(rulefile):
     'generate selected sections from rst sources by filtering with rulefile'
     ifile = open(rulefile, 'rU')
