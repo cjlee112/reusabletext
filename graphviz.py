@@ -145,6 +145,17 @@ def filter_questions(sections):
             l.append(s)
     return l
 
+def add_answers(sections):
+    l = []
+    for s in sections:
+        l.append(s)
+        answer = s.get_metadata('answer', False)
+        if answer: # add separate section for the answer
+            a = Section(s.title + ' Answer')
+            a.text = answer
+            l.append(a)
+    return l
+
 def filter_files(rulefile):
     'generate selected sections from rst sources by filtering with rulefile'
     ifile = open(rulefile, 'rU')
@@ -205,11 +216,13 @@ def apply_filters(sections, filters):
             if notFound:
                 raise ValueError('no match for title: ' + f)
 
-def write_rst_sections(path, sections):
+def write_rst_sections(path, sections, title='Intro Bioinformatics'):
     'output sections in reST format'
     ofile = open(path, 'w')
+    sep = '#' * len(title)
+    print >>ofile, '%s\n%s\n%s\n' % (sep, title, sep)
     for s in sections:
-        t = str(s)
+        t = '\n' + str(s)
         t = re.sub(':correct:', '', t) # remove metadata tags
         ofile.write(t)
     ofile.close()
@@ -234,7 +247,7 @@ def parse_directive(line):
     return content, (dlabel,)
 
 def question_html(content, directive):
-    if directive == 'figure':
+    if directive == 'figure' or directive == 'image':
         return '<IMG SRC="%s">\n' % content.split('\n')[0]
     elif directive == 'math':
         return '$$%s$$\n' % content
