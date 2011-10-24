@@ -271,7 +271,7 @@ def replace_block(s, start, parsefunc, subfunc, **kwargs):
             if result:
                 content, args = result
                 for rawline in it: # read the entire block
-                    if rawline[offset].isspace(): # inside block
+                    if rawline[:offset + 1].isspace(): # inside block
                         content += rawline
                         rawline = None
                     else: # end of block
