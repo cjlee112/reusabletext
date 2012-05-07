@@ -3,10 +3,11 @@ import graphviz
 def make_slides_and_csv(ctfile, title='Concept Tests'):
     'produces CSV for PIP to load, and RST for rst2beamer to convert'
     ctstem = ctfile.split('.')[0]
-    questions = graphviz.parse_rst(ctfile, {}, {}, {})
+    sections = graphviz.parse_rst(ctfile, {}, {}, {})
+    questions = graphviz.filter_questions(sections)
     print 'writing', ctstem + '.csv'
     graphviz.save_question_csv(questions, ctstem + '.csv') # for PIP
-    slides = graphviz.add_answers(questions)
+    slides = graphviz.add_answers(sections)
     rstout =  ctstem + '_slides.rst'
     print 'writing', rstout
     graphviz.write_rst_sections(rstout, slides, title)
