@@ -109,14 +109,25 @@ Example Text Format
 -------------------
 
 :defines: something
+:depends: some_other_concept
 
 :informal-definition:
   some text
+
+  :defines: something_else
+    definitions can be nested...
 
 :formal-definition:
   :this: subsectionName
   more text
 
+:derivation:
+  how we derive this
+
+:comment:
+  identifiers should follow Python variable name rules i.e. [A-Za-z_0-9]+
+:warning:
+  watch out for Jahangir!
 
 Example Question Format
 -----------------------
@@ -129,22 +140,22 @@ Example Question Format
 :question: MRCAlocations
   Where were you on the night of February 30th?
 
-:answer:
-  Right here in River City.
+  :answer:
+    Right here in River City.
 
 :question: treeConfidence
   Which of the branches in this tree appear to be confident?
 
   .. image:: sometree.png
 
-:answer:
-  foobar.
+  :answer:
+    foobar.
 
-:error: nameOfError1
-  some text explaining this kind of error..
+  :error: nameOfError1
+    some text explaining this kind of error..
 
-:error: nameOfError2
-  more text about another kind of error...
+  :error: nameOfError2
+    more text about another kind of error...
 
 
 Next Question
@@ -176,8 +187,8 @@ Another possibility: use indentation, just like ReST does.  e.g.
 :question: nameOfQuestion
   here is the question
 
-:answer:
-  here is the answer.
+  :answer:
+    here is the answer.
 
 This actually seems like a pretty robust, simple solution.
 
@@ -283,6 +294,11 @@ What must the content-selection format do?
 
 Questions
 
+* I want this to work recursively, i.e. to be able to select
+  from RUsT that itself constructs ReST using select.
+  For example, I build slides using select from source RUsT.
+  Then I build a slide show by pulling the slides I want.
+
 * how to specify an absolute path within this local context?
   Choices:
 
@@ -347,6 +363,14 @@ Principles
     every block a ReST section.  Since the metadata structure is
     mostly flat, deep nesting is unlikely, so indentation will not
     be unduly irksome.
+  * metadata tags that "attach" to the enclosing section should
+    generally be *verbs* (predicates) such as :defines:, :depends:.
+    This convention indicates that the "subject" of the predicate 
+    precedes it, i.e. is the enclosing scope.
+  * metadata tags that "attach" to their enclosed content should
+    generally be *nouns* such as :question:, :informal-definition:
+    etc.  This rule clearly distinguishes whether a given tag expects
+    enclosed content or not.
 * make concepts and connections explicit by inserting metadata, as
   I worked out in my original annotation proposal last fall.
   More features such as :this: can be added as needed.
