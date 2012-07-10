@@ -1,7 +1,13 @@
 
+from jinja2 import Template
+
 sectionChars = '!"#$%&\'()*+,-./:;<=>?@[\]^_`{|}~'
 minTitle = 4
-defaultBlocks = (':question:', ':answer:', ':error:', ':intro:')
+defaultBlocks = (':question:', ':answer:', ':error:', ':intro:',
+                 ':warning:', ':comment:', ':informal-definition:',
+                 ':formal-definition:', ':derivation:',
+                 '.. select::', ':format:'
+                 )
 
 def get_indent(i, rawtext, text):
     if text[i]:
@@ -9,6 +15,8 @@ def get_indent(i, rawtext, text):
 
 def is_section_mark(i, rawtext, text):
     rawline = rawtext[i]
+    if not rawline:
+        return False
     line = text[i]
     c = rawline[0]
     if c in sectionChars and line == c * len(line) \
@@ -25,7 +33,7 @@ def is_section_title(i, rawtext, text):
     if i + 2 < len(text):
         mark = is_section_mark(i + 1, rawtext, text)
         if mark and len(mark) >= len(text[i]) \
-           and rawtext[i][0] == text[i][0]:
+           and rawtext[i] and rawtext[i][0] == text[i][0]:
             return text[i], 2, mark[0]
 
 def is_section_start(i, rawtext, text):
@@ -42,11 +50,11 @@ def generate_sections(rawtext, text, title=''):
     lastStart = i = 0
     n = len(rawtext)
     levels = []
-    level = None
+    level = 0
     while i < n:
         section = is_section_start(i, rawtext, text)
         if section:
-            if i > lastStart and not_empty(text[lastStart:i]):
+            if title or not_empty(text[lastStart:i]):
                 yield [lastStart, i, title, level]
             title, step, mark = section
             i += step
@@ -56,7 +64,7 @@ def generate_sections(rawtext, text, title=''):
             level = levels.index(mark)
         else:
             i += 1
-    if not_empty(text[lastStart:]):
+    if title or not_empty(text[lastStart:]):
         yield [lastStart, len(text), title, level]
 
 def get_section_forest(rawtext, text):
@@ -66,17 +74,22 @@ def get_section_forest(rawtext, text):
         level = t[3]
         if level > len(stack):
             raise ValueError('section level too big!  Debug!')
-        elif level == len(stack):
+        elif level == len(stack): # must expand the stack
             stack.append([t])
         else:
             for i in range(level + 1, len(stack)):
                 subsections = stack.pop()
                 stack[-1][-1].append(subsections)
             stack[-1].append(t)
+    for i in range(1, len(stack)):
+        subsections = stack.pop()
+        stack[-1][-1].append(subsections)
     return stack[0] # top-level sections
 
 def is_block_start(i, rawtext, text, blockTokens):
     tokens = text[i].split()
+    if text[i].startswith('.. select::'):
+        tokens = ['.. select::'] + text[i][11:].lstrip().split()
     if tokens and tokens[0] in blockTokens:
         start = i
         indent = get_indent(i, rawtext, text)
@@ -137,6 +150,13 @@ class Block(object):
         self.tokens = tokens
         self.indent = indent
         self.__dict__.update(kwargs)
+        if tokens[0] == '.. select::':
+            self.children = parse_select(rawtext)
+        elif rawtext:
+            self.parse(rawtext, text)
+        else:
+            self.children = []
+    def parse(self, rawtext, text):
         children = []
         for start, stop, tokens, indent in generate_blocks(rawtext, text):
             if not children and not_empty(text[:start]):
@@ -149,6 +169,16 @@ class Block(object):
             self.text, self.metadata = \
                            extract_metadata(rawtext, text, self.indent)
         self.children = children
+
+    def get_children(self, token):
+        for c in self.children:
+            if c.tokens and c.tokens[0] == token:
+                yield c
+    def walk(self):
+        for c in self.children:
+            for node in c.walk():
+                yield node
+        yield self
 
 class Section(Block):
     'a ReST section, containing text, subblocks and / or subsections'
@@ -169,3 +199,105 @@ def parse_rust(rawtext):
         sections.append(Section(t, rawtext, text))
     return sections
     
+def index_rust(forest, d=None):
+    'build flat index of block IDs'
+    if d is None:
+        d = {}
+    for node in forest:
+        if len(node.tokens) > 1:
+            d[node.tokens[1]] = node
+        if node.children:
+            index_rust(node.children, d)
+    return d
+
+def parse_select(rawtext):
+    'parse a SELECT directive text, return forest of Block nodes'
+    results = []
+    stack = []
+    for line in rawtext:
+        tokens = line.strip().split()
+        if not tokens or tokens[0] == '..': # comment, ignore
+            continue
+        if tokens[0] != '*':
+            raise ValueError('not a list element: ' + line)
+        node = Block([':select:', tokens[1]], None, None)
+        params = {}
+        for param in tokens[2:]: # copy parameter settings to node
+            k,v = [s.strip() for s in param.split('=')]
+            params[k] = v
+        node.selectParams = params
+        indent = line.index('*')
+        while stack and stack[-1][0] >= indent: # pop stack if not within
+            stack.pop()
+        if stack: # add as child of existing node
+            stack[-1][1].children.append(node)
+        else: # save as top-level node
+            results.append(node)
+        stack.append((indent, node)) # push onto stack
+    return results
+
+def apply_select(forest, sourceDict, templateDict={} ,**kwargs):
+    'add formatted text to :select: nodes drawing content from sourceDict'
+    children = []
+    for node in forest:
+        nodeParams = kwargs.copy()
+        nodeParams.update(getattr(node, 'selectParams', {}))
+        subchildren = apply_select(node.children, sourceDict,
+                                   templateDict, **nodeParams)
+        if node.tokens[0] == ':select:':
+            sourceNode = sourceDict[node.tokens[1]]
+            if not subchildren:
+                subchildren = sourceNode.children
+            formatID = nodeParams.get('format', None)
+            if formatID:
+                t = templateDict[formatID]
+                s = t.render(this=sourceNode, children=subchildren,
+                             indented=indented, directive=directive,
+                             **nodeParams)
+                node.text = s.split('\n')
+            else:
+                node.text = sourceNode.text
+            children.append(node)
+    return children
+
+def indented(indent, lines):
+    'indent the lines based on the indent prefix'
+    space = ' ' * len(indent)
+    if not isinstance(lines, list):
+        lines = lines.split('\n')
+    lines = [indent + lines[0]] + [space + line for line in lines[1:]]
+    return '\n'.join(lines)
+
+def directive(name, v, text):
+    'make a ReST directive'
+    return indented('.. ', '%s:: %s\n\n%s' % (name, v, text))
+
+
+def read_rust(filename):
+    'return parse forest for the RUsT file'
+    with open(filename, 'rU') as ifile:
+        rawtext = ifile.read().split('\n')
+    return parse_rust(rawtext)
+
+def read_formats(filename):
+    'get format dictionary from the RUsT file'
+    rust = read_rust(filename)
+    formatDict = {}
+    for tree in rust:
+        for node in tree.walk():
+            if node.tokens[0] == ':format:':
+                s = '\n'.join(node.text)
+                t = Template(s)
+                formatDict[node.tokens[1]] = t
+    return formatDict
+
+def test_select(sourceFile='bayes.rst', selectFile='select.rst',
+                formatFile='formats.rst'):
+    'basic test of applying select directive to source content'
+    formatDict = read_formats(formatFile)
+    source = read_rust(sourceFile)
+    sourceDict = index_rust(source)
+    selection = read_rust(selectFile)
+    apply_select(selection, sourceDict, formatDict,
+                 insertVspace='', insertPagebreak=False)
+    return selection
