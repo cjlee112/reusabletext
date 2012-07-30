@@ -146,29 +146,66 @@ def extract_metadata(rawtext, text, indent):
 
 class Block(object):
     'a RUsT block, containing text and / or subblocks'
-    def __init__(self, tokens, rawtext, text, indent=0, **kwargs):
+    def __init__(self, tokens, rawtext, text, indent=0,
+                 blockTokens=defaultBlocks, **kwargs):
         self.tokens = tokens
         self.indent = indent
         self.__dict__.update(kwargs)
         if tokens[0] == '.. select::':
             self.children = parse_select(rawtext)
         elif rawtext:
-            self.parse(rawtext, text)
+            self.parse(rawtext, text, blockTokens)
         else:
             self.children = []
-    def parse(self, rawtext, text):
+    def parse(self, rawtext, text, blockTokens):
         children = []
-        for start, stop, tokens, indent in generate_blocks(rawtext, text):
+        stop = 0
+        self.text = []
+        self.metadata = []
+        for start, stop, tokens, indent in generate_blocks(rawtext, text,
+                                                           blockTokens):
             if not children and not_empty(text[:start]):
                 self.text, self.metadata = \
                            extract_metadata(rawtext[:start], text[:start],
                                             self.indent)
             children.append(Block(tokens, rawtext[start + 1:stop],
-                                  text[start + 1:stop], indent))
-        if not children and not_empty(text):
-            self.text, self.metadata = \
-                           extract_metadata(rawtext, text, self.indent)
+                                  text[start + 1:stop], indent, blockTokens))
+        if not_empty(text[stop:]):
+            addtext, metadata = \
+                     extract_metadata(rawtext[stop:], text[stop:], self.indent)
+            self.text += addtext
+            self.metadata += metadata
         self.children = children
+
+    def metadata_dict(self):
+        '''save metadata as dict values containing list of one
+        or more values'''
+        d = {}
+        try:
+            metadata = self.metadata
+        except AttributeError:
+            return d
+        for line in metadata:
+            attr = line.split(':')[1]
+            v = line[len(attr) + 2:].lstrip()
+            try:
+                d[attr].append(v)
+            except KeyError:
+                d[attr] = [v]
+        return d
+
+    def child_dict(self, d=None):
+        if d is None:
+            d = {}
+        for c in self.children:
+            if c.tokens and getattr(c, 'text', False):
+                attr = c.tokens[0][1:-1]
+                v = ''.join(c.text)
+                try:
+                    d[attr].append(v)
+                except KeyError:
+                    d[attr] = [v]
+        return d
 
     def get_children(self, token):
         for c in self.children:
@@ -191,13 +228,19 @@ class Section(Block):
             for subsection in t[4]:
                 self.children.append(Section(subsection, rawtext, text))
 
-def parse_rust(rawtext):
+def parse_rust(rawtext, **kwargs):
     'top level block parser, returns list of sections'
     sections = []
     text = [line.strip() for line in rawtext]
     for t in get_section_forest(rawtext, text):
-        sections.append(Section(t, rawtext, text))
+        sections.append(Section(t, rawtext, text, **kwargs))
     return sections
+
+def parse_file(filename, **kwargs):
+    'read RUsT from specified file'
+    with open(filename, 'rU') as ifile:
+        rawtext = list(ifile)
+    return parse_rust(rawtext, **kwargs)
     
 def index_rust(forest, d=None):
     'build flat index of block IDs'
