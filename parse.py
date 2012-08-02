@@ -200,7 +200,7 @@ class Block(object):
         for c in self.children:
             if c.tokens and getattr(c, 'text', False):
                 attr = c.tokens[0][1:-1]
-                v = ''.join(c.text)
+                v = c.text
                 try:
                     d[attr].append(v)
                 except KeyError:
@@ -306,6 +306,8 @@ def apply_select(forest, sourceDict, templateDict={} ,**kwargs):
             sourceNode.add_metadata_attrs()
             if not subchildren:
                 subchildren = sourceNode.children
+            for c in subchildren:
+                c.add_metadata_attrs()
             formatID = nodeParams.get('format', None)
             if formatID:
                 t = templateDict[formatID]
@@ -343,7 +345,7 @@ def read_formats(filename):
                 formatDict[node.tokens[1]] = t
     return formatDict
 
-def test_select(sourceFiles=('bayes.rst', 'modeling.rst'),
+def test_select(sourceFiles=('bayes.rst', 'modeling.rst', 'condprob.rst'),
                 selectFile='hw1.rst',
                 formatFile='formats.rst'):
     'basic test of applying select directive to source content'
