@@ -33,7 +33,7 @@ def is_section_title(i, rawtext, text):
     if i + 2 < len(text):
         mark = is_section_mark(i + 1, rawtext, text)
         if mark and len(mark) >= len(text[i]) \
-           and rawtext[i] and rawtext[i][0] == text[i][0]:
+           and text[i] and rawtext[i][0] == text[i][0]:
             return text[i], 2, mark[0]
 
 def is_section_start(i, rawtext, text):
@@ -207,6 +207,11 @@ class Block(object):
                     d[attr] = [v]
         return d
 
+    def add_metadata_attrs(self):
+        'add metadata as attributes on this obj'
+        self.__dict__.update(self.metadata_dict())
+        self.__dict__.update(self.child_dict())
+
     def get_children(self, token):
         for c in self.children:
             if c.tokens and c.tokens[0] == token:
@@ -228,9 +233,10 @@ class Section(Block):
             for subsection in t[4]:
                 self.children.append(Section(subsection, rawtext, text))
 
-def parse_rust(rawtext, **kwargs):
+def parse_rust(rawtext, sections=None, **kwargs):
     'top level block parser, returns list of sections'
-    sections = []
+    if sections is None:
+        sections = []
     text = [line.strip() for line in rawtext]
     for t in get_section_forest(rawtext, text):
         sections.append(Section(t, rawtext, text, **kwargs))
@@ -239,18 +245,26 @@ def parse_rust(rawtext, **kwargs):
 def parse_file(filename, **kwargs):
     'read RUsT from specified file'
     with open(filename, 'rU') as ifile:
-        rawtext = list(ifile)
+        rawtext = ifile.read().split('\n')
     return parse_rust(rawtext, **kwargs)
+    
+def parse_files(filenames, **kwargs):
+    'read RUsT from specified files'
+    sections = []
+    for filename in filenames:
+        with open(filename, 'rU') as ifile:
+            rawtext = ifile.read().split('\n')
+        parse_rust(rawtext, sections, **kwargs)
+    return sections
     
 def index_rust(forest, d=None):
     'build flat index of block IDs'
     if d is None:
         d = {}
-    for node in forest:
-        if len(node.tokens) > 1:
-            d[node.tokens[1]] = node
-        if node.children:
-            index_rust(node.children, d)
+    for tree in forest:
+        for node in tree.walk():
+            if len(node.tokens) > 1:
+                d[node.tokens[1]] = node
     return d
 
 def parse_select(rawtext):
@@ -289,6 +303,7 @@ def apply_select(forest, sourceDict, templateDict={} ,**kwargs):
                                    templateDict, **nodeParams)
         if node.tokens[0] == ':select:':
             sourceNode = sourceDict[node.tokens[1]]
+            sourceNode.add_metadata_attrs()
             if not subchildren:
                 subchildren = sourceNode.children
             formatID = nodeParams.get('format', None)
@@ -316,15 +331,9 @@ def directive(name, v, text):
     return indented('.. ', '%s:: %s\n\n%s' % (name, v, text))
 
 
-def read_rust(filename):
-    'return parse forest for the RUsT file'
-    with open(filename, 'rU') as ifile:
-        rawtext = ifile.read().split('\n')
-    return parse_rust(rawtext)
-
 def read_formats(filename):
     'get format dictionary from the RUsT file'
-    rust = read_rust(filename)
+    rust = parse_file(filename)
     formatDict = {}
     for tree in rust:
         for node in tree.walk():
@@ -334,13 +343,34 @@ def read_formats(filename):
                 formatDict[node.tokens[1]] = t
     return formatDict
 
-def test_select(sourceFile='bayes.rst', selectFile='select.rst',
+def test_select(sourceFiles=('bayes.rst', 'modeling.rst'),
+                selectFile='hw1.rst',
                 formatFile='formats.rst'):
     'basic test of applying select directive to source content'
     formatDict = read_formats(formatFile)
-    source = read_rust(sourceFile)
+    source = parse_files(sourceFiles)
     sourceDict = index_rust(source)
-    selection = read_rust(selectFile)
+    selection = parse_file(selectFile)
     apply_select(selection, sourceDict, formatDict,
                  insertVspace='', insertPagebreak=False)
     return selection
+
+def get_text(forest):
+    l = []
+    for tree in forest:
+        for node in tree.walk():
+            try:
+                l += node.text
+            except AttributeError:
+                pass
+    return '\n'.join(l)
+
+if __name__ == '__main__':
+    import sys
+    try:
+        infile, outfile = sys.argv[1:]
+    except ValueError:
+        print 'usage: %s INRSTFILE OUTRSTFILE' % sys.argv[0]
+    s = test_select(selectFile=infile)
+    with open(outfile, 'w') as ofile:
+        ofile.write(get_text(s))
