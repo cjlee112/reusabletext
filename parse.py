@@ -6,7 +6,7 @@ minTitle = 4
 defaultBlocks = (':question:', ':answer:', ':error:', ':intro:',
                  ':warning:', ':comment:', ':informal-definition:',
                  ':formal-definition:', ':derivation:',
-                 '.. select::', ':format:'
+                 '.. select::', ':format:', ':multichoice:',
                  )
 
 def get_indent(i, rawtext, text):
@@ -123,6 +123,28 @@ def generate_blocks(rawtext, text, blockTokens=defaultBlocks):
         else:
             i += 1
 
+def split_items(rawtext, text, bullet='* '):
+    'split a ReST item list into separate item texts'
+    l = []
+    skip = len(bullet)
+    for i,line in enumerate(text):
+        if line.startswith(bullet):
+            pos = rawtext[i].index(bullet) + skip
+            itemstart = rawtext[i][:pos]
+            for j,line in enumerate(rawtext[i:]):
+                if line.startswith(itemstart):                    
+                    l.append(i + j)
+            l.append(len(text))
+            break
+    if not l:
+        return ()
+    items = []
+    for i,j in enumerate(l[:-1]):
+        item = [text[j][skip:]] + text[j + 1:l[i + 1]]
+        items.append(item)
+    return items
+    
+
 def is_metadata(line):
     'matches any line beginning with :foobar: pattern'
     if line and line[0] == ':':
@@ -194,7 +216,7 @@ class Block(object):
                 d[attr] = [v]
         return d
 
-    def child_dict(self, d=None):
+    def child_dict(self, d=None, postprocDict={}):
         if d is None:
             d = {}
         for c in self.children:
@@ -202,15 +224,21 @@ class Block(object):
                 attr = c.tokens[0][1:-1]
                 v = c.text
                 try:
+                    f = postprocDict[attr]
+                except KeyError:
+                    pass
+                else: # run postprocessor
+                    v = f(v)
+                try:
                     d[attr].append(v)
                 except KeyError:
                     d[attr] = [v]
         return d
 
-    def add_metadata_attrs(self):
+    def add_metadata_attrs(self, postprocDict={}):
         'add metadata as attributes on this obj'
         self.__dict__.update(self.metadata_dict())
-        self.__dict__.update(self.child_dict())
+        self.__dict__.update(self.child_dict(None, postprocDict))
 
     def get_children(self, token):
         for c in self.children:
@@ -293,26 +321,28 @@ def parse_select(rawtext):
         stack.append((indent, node)) # push onto stack
     return results
 
-def apply_select(forest, sourceDict, templateDict={} ,**kwargs):
+def apply_select(forest, sourceDict, templateDict={},
+                 postprocDict={}, **kwargs):
     'add formatted text to :select: nodes drawing content from sourceDict'
     children = []
     for node in forest:
         nodeParams = kwargs.copy()
         nodeParams.update(getattr(node, 'selectParams', {}))
         subchildren = apply_select(node.children, sourceDict,
-                                   templateDict, **nodeParams)
+                                   templateDict, postprocDict, **nodeParams)
         if node.tokens[0] == ':select:':
             sourceNode = sourceDict[node.tokens[1]]
-            sourceNode.add_metadata_attrs()
+            sourceNode.add_metadata_attrs(postprocDict)
             if not subchildren:
                 subchildren = sourceNode.children
             for c in subchildren:
-                c.add_metadata_attrs()
+                c.add_metadata_attrs(postprocDict)
             formatID = nodeParams.get('format', None)
             if formatID:
                 t = templateDict[formatID]
                 s = t.render(this=sourceNode, children=subchildren,
                              indented=indented, directive=directive,
+                             getattr=getattr,
                              **nodeParams)
                 node.text = s.split('\n')
             else:
@@ -345,15 +375,22 @@ def read_formats(filename):
                 formatDict[node.tokens[1]] = t
     return formatDict
 
-def test_select(sourceFiles=('bayes.rst', 'modeling.rst', 'condprob.rst'),
+def itemsplit_pp(rawtext):
+    text = [line.strip() for line in rawtext]
+    return split_items(rawtext, text)
+
+def test_select(sourceFiles=('bayes.rst', 'modeling.rst', 'condprob.rst',
+                             'hypotest.rst', 'hmm.rst', 'align.rst',
+                             'phylogeny.rst'),
                 selectFile='hw1.rst',
-                formatFile='formats.rst'):
+                formatFile='formats.rst',
+                postprocDict={'multichoice':itemsplit_pp}):
     'basic test of applying select directive to source content'
     formatDict = read_formats(formatFile)
     source = parse_files(sourceFiles)
     sourceDict = index_rust(source)
     selection = parse_file(selectFile)
-    apply_select(selection, sourceDict, formatDict,
+    apply_select(selection, sourceDict, formatDict, postprocDict,
                  insertVspace='', insertPagebreak=False)
     return selection
 
