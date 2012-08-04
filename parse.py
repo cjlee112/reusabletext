@@ -166,7 +166,29 @@ def extract_metadata(rawtext, text, indent):
             l.append(rawtext[i])
     return l, metadata
 
-class Block(object):
+class BlockBase(object):
+    def __init__(self):
+        pass
+    def copy(self):
+        'deep copy of this object'
+        c = BlockBase()
+        c.__class__ = self.__class__
+        c.tokens = tuple(self.tokens)
+        if hasattr(self, 'text'):
+            c.text = self.text
+        if hasattr(self, 'children'):
+            c.children = list(self.children)
+        if hasattr(self, 'metadata'):
+            c.metadata = list(self.metadata)
+        return c
+    def walk(self):
+        'DFS traversal of the tree'
+        for c in self.children:
+            for node in c.walk():
+                yield node
+        yield self
+
+class Block(BlockBase):
     'a RUsT block, containing text and / or subblocks'
     def __init__(self, tokens, rawtext, text, indent=0,
                  blockTokens=defaultBlocks, **kwargs):
@@ -244,11 +266,6 @@ class Block(object):
         for c in self.children:
             if c.tokens and c.tokens[0] == token:
                 yield c
-    def walk(self):
-        for c in self.children:
-            for node in c.walk():
-                yield node
-        yield self
 
 class Section(Block):
     'a ReST section, containing text, subblocks and / or subsections'
@@ -260,15 +277,22 @@ class Section(Block):
         if len(t) > 4: # append subsections after subblocks
             for subsection in t[4]:
                 self.children.append(Section(subsection, rawtext, text))
+                
+class Document(BlockBase):
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+        self.children = []
+    def append(self, v):
+        self.children.append(v)
 
-def parse_rust(rawtext, sections=None, **kwargs):
+def parse_rust(rawtext, doc=None, **kwargs):
     'top level block parser, returns list of sections'
-    if sections is None:
-        sections = []
+    if doc is None:
+        doc = Document()
     text = [line.strip() for line in rawtext]
     for t in get_section_forest(rawtext, text):
-        sections.append(Section(t, rawtext, text, **kwargs))
-    return sections
+        doc.append(Section(t, rawtext, text, **kwargs))
+    return doc
 
 def parse_file(filename, **kwargs):
     'read RUsT from specified file'
@@ -278,21 +302,20 @@ def parse_file(filename, **kwargs):
     
 def parse_files(filenames, **kwargs):
     'read RUsT from specified files'
-    sections = []
+    doc = Document()
     for filename in filenames:
         with open(filename, 'rU') as ifile:
             rawtext = ifile.read().split('\n')
-        parse_rust(rawtext, sections, **kwargs)
-    return sections
+        parse_rust(rawtext, doc, **kwargs)
+    return doc
     
-def index_rust(forest, d=None):
+def index_rust(tree, d=None):
     'build flat index of block IDs'
     if d is None:
         d = {}
-    for tree in forest:
-        for node in tree.walk():
-            if len(node.tokens) > 1:
-                d[node.tokens[1]] = node
+    for node in tree.walk():
+        if hasattr(node, 'tokens') and len(node.tokens) > 1:
+            d[node.tokens[1]] = node
     return d
 
 def parse_select(rawtext):
@@ -321,34 +344,16 @@ def parse_select(rawtext):
         stack.append((indent, node)) # push onto stack
     return results
 
-def apply_select(forest, sourceDict, templateDict={},
-                 postprocDict={}, **kwargs):
-    'add formatted text to :select: nodes drawing content from sourceDict'
-    children = []
-    for node in forest:
-        nodeParams = kwargs.copy()
-        nodeParams.update(getattr(node, 'selectParams', {}))
-        subchildren = apply_select(node.children, sourceDict,
-                                   templateDict, postprocDict, **nodeParams)
+def apply_select(tree, sourceDict):
+    'replace :select: nodes with desired content from sourceDict'
+    for i,node in enumerate(tree.children):
         if node.tokens[0] == ':select:':
             sourceNode = sourceDict[node.tokens[1]]
-            sourceNode.add_metadata_attrs(postprocDict)
-            if not subchildren:
-                subchildren = sourceNode.children
-            for c in subchildren:
-                c.add_metadata_attrs(postprocDict)
-            formatID = nodeParams.get('format', None)
-            if formatID:
-                t = templateDict[formatID]
-                s = t.render(this=sourceNode, children=subchildren,
-                             indented=indented, directive=directive,
-                             getattr=getattr,
-                             **nodeParams)
-                node.text = s.split('\n')
-            else:
-                node.text = sourceNode.text
-            children.append(node)
-    return children
+            c = sourceNode.copy()
+            c.selectParams = node.selectParams
+            tree.children[i] = c # source node replaces target node
+        else: # recurse down tree
+            apply_select(node, sourceDict)
 
 def indented(indent, lines):
     'indent the lines based on the indent prefix'
@@ -365,14 +370,13 @@ def directive(name, v, text):
 
 def read_formats(filename):
     'get format dictionary from the RUsT file'
-    rust = parse_file(filename)
+    tree = parse_file(filename)
     formatDict = {}
-    for tree in rust:
-        for node in tree.walk():
-            if node.tokens[0] == ':format:':
-                s = '\n'.join(node.text)
-                t = Template(s)
-                formatDict[node.tokens[1]] = t
+    for node in tree.walk():
+        if getattr(node, 'tokens', ('ignore',))[0] == ':format:':
+            s = '\n'.join(node.text)
+            t = Template(s)
+            formatDict[node.tokens[1]] = t
     return formatDict
 
 def itemsplit_pp(rawtext):
@@ -382,27 +386,47 @@ def itemsplit_pp(rawtext):
 def test_select(sourceFiles=('bayes.rst', 'modeling.rst', 'condprob.rst',
                              'hypotest.rst', 'hmm.rst', 'align.rst',
                              'phylogeny.rst'),
-                selectFile='hw1.rst',
-                formatFile='formats.rst',
-                postprocDict={'multichoice':itemsplit_pp}):
+                selectFile='hw1.rst'):
     'basic test of applying select directive to source content'
-    formatDict = read_formats(formatFile)
     source = parse_files(sourceFiles)
     sourceDict = index_rust(source)
     selection = parse_file(selectFile)
-    apply_select(selection, sourceDict, formatDict, postprocDict,
-                 insertVspace='', insertPagebreak=False)
+    apply_select(selection, sourceDict)
     return selection
 
-def get_text(forest):
+def get_text_list(tree, templateDict, postprocDict, **kwargs):
     l = []
-    for tree in forest:
-        for node in tree.walk():
+    for node in tree.children:
+        if hasattr(node, 'selectParams'):
+            node.add_metadata_attrs(postprocDict)
+            for c in node.children:
+                c.add_metadata_attrs(postprocDict)
+            nodeParams = kwargs.copy()
+            nodeParams.update(node.selectParams)
             try:
-                l += node.text
-            except AttributeError:
-                pass
+                formatID = nodeParams['format']
+            except KeyError:
+                l += getattr(node, 'text', [])
+            else:
+                t = templateDict[formatID]
+                s = t.render(this=node, children=node.children,
+                             indented=indented, directive=directive,
+                             getattr=getattr, **nodeParams)
+                l.append(s)
+                continue
+        else:
+            l += getattr(node, 'text', [])
+            l += get_text_list(node, templateDict, postprocDict, **kwargs)
+    return l
+
+def get_text(tree, templateDict={},
+             postprocDict={'multichoice':itemsplit_pp},
+             insertVspace='', insertPagebreak=False, **kwargs):
+    l = get_text_list(tree, templateDict, postprocDict,
+                      insertVspace=insertVspace,
+                      insertPagebreak=insertPagebreak, **kwargs)
     return '\n'.join(l)
+    
 
 if __name__ == '__main__':
     import sys
@@ -411,5 +435,6 @@ if __name__ == '__main__':
     except ValueError:
         print 'usage: %s INRSTFILE OUTRSTFILE' % sys.argv[0]
     s = test_select(selectFile=infile)
+    templateDict = read_formats('formats.rst')
     with open(outfile, 'w') as ofile:
-        ofile.write(get_text(s))
+        ofile.write(get_text(s, templateDict))
