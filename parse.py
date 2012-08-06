@@ -1,5 +1,7 @@
-
-from jinja2 import Template
+try:
+    from jinja2 import Template
+except ImportError:
+    pass
 
 sectionChars = '!"#$%&\'()*+,-./:;<=>?@[\]^_`{|}~'
 minTitle = 4

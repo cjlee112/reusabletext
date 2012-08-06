@@ -5,17 +5,19 @@ import shutil
 import subprocess
 
 
-def make_slides_and_csv(ctfile, title='Concept Tests'):
-    'produces CSV for PIP to load, and RST for rst2beamer to convert'
+def make_slides_and_csv(ctfile, imagepath, title='Concept Tests'):
+    'produces CSV for Socraticqs to load, and RST for rst2beamer to convert'
+    tree = parse.test_select(selectFile=ctfile)
+    questions = get_questions(tree)
     ctstem = ctfile.split('.')[0]
-    sections = graphviz.parse_rst(ctfile, {}, {}, {})
-    questions = graphviz.filter_questions(sections)
     print 'writing', ctstem + '.csv'
-    graphviz.save_question_csv(questions, ctstem + '.csv') # for PIP
-    slides = graphviz.add_answers(sections)
+    save_question_csv(questions, ctstem + '.csv', parse.PostprocDict,
+                      imagepath)
+    templateDict = parse.read_formats('formats.rst')
     rstout =  ctstem + '_slides.rst'
     print 'writing', rstout
-    graphviz.write_rst_sections(rstout, slides, title)
+    with open(rstout, 'w') as ofile:
+        ofile.write(parse.get_text(tree, templateDict))
     return rstout
 
 def make_tex(slidesfile):
@@ -75,17 +77,7 @@ if __name__ == '__main__':
         infile, imagepath = sys.argv[1:]
     except ValueError:
         print 'usage: %s INRSTFILE IMAGEDIR' % sys.argv[0]
-    tree = parse.test_select(selectFile=infile)
-    questions = get_questions(tree)
-    ctstem = infile.split('.')[0]
-    print 'writing', ctstem + '.csv'
-    save_question_csv(questions, ctstem + '.csv', parse.PostprocDict,
-                      imagepath)
-    templateDict = parse.read_formats('formats.rst')
-    rstout =  ctstem + '_slides.rst'
-    print 'writing', rstout
-    with open(rstout, 'w') as ofile:
-        ofile.write(parse.get_text(tree, templateDict))
+    rstout = make_slides_and_csv(infile, imagepath)
     texfile = make_tex(rstout) # generate beamer latex
     print 'running pdflatex...'
     subprocess.call(['pdflatex', texfile])
