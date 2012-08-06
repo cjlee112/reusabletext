@@ -241,18 +241,22 @@ def line_iter(s):
 def parse_directive(line):
     dlabel = line.split(':')[0]
     try:
-        content = line[line.index('::') + 2:] + '\n'
+        content = line[line.index('::') + 2:].lstrip() + '\n'
     except ValueError: # just a comment, not a directive
         return None
     return content, (dlabel,)
 
-def question_html(content, directive):
+def question_html(content, directive, imageList=None, imageRoot='/images/',
+                  **kwargs):
     if directive == 'figure' or directive == 'image':
-        return '<IMG SRC="%s">\n' % content.split('\n')[0]
+        path = content.split('\n')[0]
+        if imageList is not None:
+            imageList.append(path)
+        return '<BR><IMG SRC="%s%s">\n' % (imageRoot, path)
     elif directive == 'math':
         return '$$%s$$\n' % content
 
-def list_html(content):
+def list_html(content, **kwargs):
     return '<LI>' + content + '</LI>\n'
 
 def replace_block(s, start, parsefunc, subfunc, **kwargs):
@@ -294,10 +298,10 @@ def append_choice(content, choices):
     choices.append(' '.join(content.split('\n')))
     return ''
 
-def trivial_html(s):
+def trivial_html(s, **kwargs):
     s = re.sub(r':math:`([^`]*)`', r'\(\1\)', s)
-    s = replace_block(s, '.. ', parse_directive, question_html)
-    s = replace_block(s, '* ', echo_line, list_html)
+    s = replace_block(s, '.. ', parse_directive, question_html, **kwargs)
+    s = replace_block(s, '* ', echo_line, list_html, **kwargs)
     return s
 
 def replace_newlines(s):
