@@ -174,6 +174,8 @@ class BlockBase(object):
         c = BlockBase()
         c.__class__ = self.__class__
         c.tokens = tuple(self.tokens)
+        if hasattr(self, 'title'):
+            c.title = self.title
         if hasattr(self, 'text'):
             c.text = self.text
         if hasattr(self, 'children'):
@@ -273,10 +275,13 @@ class Section(Block):
         start, stop, title, level = t[:4]
         Block.__init__(self, ('section',), rawtext[start:stop],
                        text[start:stop],
-                       title=title, level=level, **kwargs)
+                       title=(title,), level=level, **kwargs)
         if len(t) > 4: # append subsections after subblocks
             for subsection in t[4]:
                 self.children.append(Section(subsection, rawtext, text))
+        for line in getattr(self, 'metadata', ()):
+            if line.startswith(':ID:'): # extract section ID
+                self.tokens = ('section', line.split()[1])
                 
 class Document(BlockBase):
     def __init__(self, **kwargs):
@@ -411,7 +416,7 @@ def get_text_list(tree, templateDict, postprocDict, **kwargs):
                 t = templateDict[formatID]
                 s = t.render(this=node, children=node.children,
                              indented=indented, directive=directive,
-                             getattr=getattr, **nodeParams)
+                             getattr=getattr, len=len, **nodeParams)
                 l.append(s)
                 continue
         else:
