@@ -252,7 +252,7 @@ class Block(BlockBase):
                 except KeyError:
                     pass
                 else: # run postprocessor
-                    v = f(v)
+                    v = f(self, v)
                 try:
                     d[attr].append(v)
                 except KeyError:
@@ -384,9 +384,24 @@ def read_formats(filename):
             formatDict[node.tokens[1]] = t
     return formatDict
 
-def itemsplit_pp(rawtext):
+def itemsplit_pp(node, rawtext):
+    'treat as ReST item list, split into list of items'
     text = [line.strip() for line in rawtext]
     return split_items(rawtext, text)
+
+def multichoice_pp(node, rawtext):
+    'remove :correct: tag, set node.correct, and return list of items'
+    items = itemsplit_pp(node, rawtext)
+    for i,c in enumerate(items):
+        try:
+            pos = c[-1].index(':correct:') # assume tag on last line
+        except ValueError:
+            pass
+        else:
+            node.correct = i
+            c[-1] = c[-1][:pos]
+            break
+    return items
 
 def test_select(sourceFiles=('bayes.rst', 'modeling.rst', 'condprob.rst',
                              'hypotest.rst', 'hmm.rst', 'align.rst',
@@ -424,14 +439,16 @@ def get_text_list(tree, templateDict, postprocDict, **kwargs):
             l += get_text_list(node, templateDict, postprocDict, **kwargs)
     return l
 
+# define metadata that require post-processing
+PostprocDict = {'multichoice':multichoice_pp}
+
 def get_text(tree, templateDict={},
-             postprocDict={'multichoice':itemsplit_pp},
+             postprocDict=PostprocDict,
              insertVspace='', insertPagebreak=False, **kwargs):
     l = get_text_list(tree, templateDict, postprocDict,
                       insertVspace=insertVspace,
                       insertPagebreak=insertPagebreak, **kwargs)
     return '\n'.join(l)
-    
 
 if __name__ == '__main__':
     import sys
