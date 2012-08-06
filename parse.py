@@ -9,6 +9,20 @@ defaultBlocks = (':question:', ':answer:', ':error:', ':intro:',
                  '.. select::', ':format:', ':multichoice:',
                  )
 
+# do not extract standard docutils directive options as RUsT metadata
+docutilsMetadata = set((':width:',':alt:', ':height:', ':scale:',
+                        ':align:', ':target:', ':figwidth:',
+                        ':figclass:', ':subtitle:', ':header:',
+                        ':widths:', ':header-rows:', ':stub-columns:',
+                        ':file:', ':url:', ':encoding:',
+                        ':delim:', ':quote:', ':keepspace:', ':escape:',
+                        ':depth:', ':local:', ':backlinks:',
+                        ':prefix:', ':suffix:', ':start:', ':ltrim:',
+                        ':rtrim:', ':trim:', ':start-line:', ':end-line:',
+                        ':start-after:', ':end-before:', ':literal:',
+                        ':code:', ':number-lines:', ':tab-width:',
+                        ))
+
 def get_indent(i, rawtext, text):
     if text[i]:
         return rawtext[i].index(text[i][0])
@@ -145,11 +159,12 @@ def split_items(rawtext, text, bullet='* '):
     return items
     
 
-def is_metadata(line):
+def is_metadata(line, excludeTags=docutilsMetadata):
     'matches any line beginning with :foobar: pattern'
     if line and line[0] == ':':
         token = line.split()[0]
-        return token[-1] == ':' and len(token) > 2
+        return token[-1] == ':' and len(token) > 2 and \
+               token not in excludeTags
             
 
 def extract_metadata(rawtext, text, indent):
