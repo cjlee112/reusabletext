@@ -2,6 +2,7 @@ import parse
 import graphviz
 import csv
 import shutil
+import subprocess
 
 
 def make_slides_and_csv(ctfile, title='Concept Tests'):
@@ -28,6 +29,7 @@ def make_tex(slidesfile):
     rst2beamer.publish_cmdline(writer=rst2beamer.BeamerWriter(),
                                description=description,
                                argv=argv)
+    return texfile
 
 def get_questions(tree):
     'extract questions from select tree, as flat Document'
@@ -79,6 +81,11 @@ if __name__ == '__main__':
     print 'writing', ctstem + '.csv'
     save_question_csv(questions, ctstem + '.csv', parse.PostprocDict,
                       imagepath)
-    # rstout = make_slides_and_csv(*sys.argv[1:])
-    # make_tex(rstout)
-
+    templateDict = parse.read_formats('formats.rst')
+    rstout =  ctstem + '_slides.rst'
+    print 'writing', rstout
+    with open(rstout, 'w') as ofile:
+        ofile.write(parse.get_text(tree, templateDict))
+    texfile = make_tex(rstout) # generate beamer latex
+    print 'running pdflatex...'
+    subprocess.call(['pdflatex', texfile])
