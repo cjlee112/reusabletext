@@ -250,6 +250,16 @@ template, allowing the following local variables:
   parse tree.  E.g. if ``this`` is a multipart question, then
   ``children`` will be the list of sub-questions.
 
+**Note**: ReusableText allows multiple occurences of the same
+metadata tag (e.g. ``:question:``) in a given block, to allow
+for multiple values.  Therefore metadata attributes bound as
+object attributes are *always list objects* (even if the tag
+occured only once in the block, its attribute value will be
+a list, of length 1).  If you only
+want a single value of that metadata tag, simply access
+the first item of the list, e.g. ``this.title[0]``.
+
+
 It also allows the following function calls:
 
 * ``indented(indent, lines)``: ``indent`` must be a string
