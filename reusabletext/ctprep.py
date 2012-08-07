@@ -7,17 +7,16 @@ import subprocess
 
 def make_slides_and_csv(ctfile, imagepath, title='Concept Tests'):
     'produces CSV for Socraticqs to load, and RST for rst2beamer to convert'
-    tree = parse.test_select(selectFile=ctfile)
+    tree = parse.process_select(ctfile)
     questions = get_questions(tree)
     ctstem = ctfile.split('.')[0]
     print 'writing', ctstem + '.csv'
     save_question_csv(questions, ctstem + '.csv', parse.PostprocDict,
                       imagepath)
-    templateDict = parse.read_formats('formats.rst')
     rstout =  ctstem + '_slides.rst'
     print 'writing', rstout
     with open(rstout, 'w') as ofile:
-        ofile.write(parse.get_text(tree, templateDict))
+        ofile.write(parse.get_text(tree))
     return rstout
 
 def make_tex(slidesfile):
@@ -53,8 +52,9 @@ def save_question_csv(questions, csvfile, postprocDict,
     imageFiles = []
     for q in questions.children:
         q.add_metadata_attrs(postprocDict)
-        s = get_html(q.text, imageList=imageFiles)
-        answer = get_html(q.answer[0])
+        s = get_html(q.text, filepath=q.filepath, imageList=imageFiles)
+        answer = get_html(q.answer[0], filepath=q.filepath,
+                          imageList=imageFiles)
         if hasattr(q, 'multichoice'): # multiple choice format
             choices = [get_html(c) for c in q.multichoice[0]]
             writer.writerow(('mc', q.title[0], s, answer, q.correct)

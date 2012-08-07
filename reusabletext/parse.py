@@ -1,3 +1,4 @@
+import os
 try:
     from jinja2 import Template
 except ImportError:
@@ -105,7 +106,7 @@ def get_section_forest(rawtext, text):
 def is_block_start(i, rawtext, text, blockTokens):
     tokens = text[i].split()
     if text[i].startswith('.. select::'):
-        tokens = ['.. select::'] + text[i][11:].lstrip().split()
+        tokens = ['.. select::', text[i][11:].lstrip()]
     if tokens and tokens[0] in blockTokens:
         start = i
         indent = get_indent(i, rawtext, text)
@@ -193,6 +194,8 @@ class BlockBase(object):
         c.tokens = tuple(self.tokens)
         if hasattr(self, 'title'):
             c.title = self.title
+        if hasattr(self, 'filepath'):
+            c.filepath = self.filepath
         if hasattr(self, 'text'):
             c.text = self.text
         if hasattr(self, 'children'):
@@ -210,17 +213,24 @@ class BlockBase(object):
 class Block(BlockBase):
     'a RUsT block, containing text and / or subblocks'
     def __init__(self, tokens, rawtext, text, indent=0,
-                 blockTokens=defaultBlocks, **kwargs):
+                 blockTokens=defaultBlocks, filepath=None, **kwargs):
         self.tokens = tokens
         self.indent = indent
+        self.filepath = filepath
         self.__dict__.update(kwargs)
         if tokens[0] == '.. select::':
-            self.children = parse_select(rawtext)
-        elif rawtext:
+            result = parse_select(rawtext, tokens[1], filepath)
+            if result is None: # couldn't process, so just leave as text
+                self.text = text
+                self.children = []
+            else:
+                self.children = result
+        elif rawtext: # parse sub-blocks, metadata
             self.parse(rawtext, text, blockTokens)
-        else:
+        else: # empty
             self.children = []
     def parse(self, rawtext, text, blockTokens):
+        'parse into sub-blocks, if any, and extract metadata'
         children = []
         stop = 0
         self.text = []
@@ -232,7 +242,8 @@ class Block(BlockBase):
                            extract_metadata(rawtext[:start], text[:start],
                                             self.indent)
             children.append(Block(tokens, rawtext[start + 1:stop],
-                                  text[start + 1:stop], indent, blockTokens))
+                                  text[start + 1:stop], indent, blockTokens,
+                                  self.filepath))
         if not_empty(text[stop:]):
             addtext, metadata = \
                      extract_metadata(rawtext[stop:], text[stop:], self.indent)
@@ -288,14 +299,15 @@ class Block(BlockBase):
 
 class Section(Block):
     'a ReST section, containing text, subblocks and / or subsections'
-    def __init__(self, t, rawtext, text, **kwargs):
+    def __init__(self, t, rawtext, text, filepath=None, **kwargs):
         start, stop, title, level = t[:4]
         Block.__init__(self, ('section',), rawtext[start:stop],
-                       text[start:stop],
+                       text[start:stop], filepath=filepath,
                        title=(title,), level=level, **kwargs)
         if len(t) > 4: # append subsections after subblocks
             for subsection in t[4]:
-                self.children.append(Section(subsection, rawtext, text))
+                self.children.append(Section(subsection, rawtext, text,
+                                             filepath=filepath))
         for line in getattr(self, 'metadata', ()):
             if line.startswith(':ID:'): # extract section ID
                 self.tokens = ('section', line.split()[1])
@@ -307,20 +319,20 @@ class Document(BlockBase):
     def append(self, v):
         self.children.append(v)
 
-def parse_rust(rawtext, doc=None, **kwargs):
+def parse_rust(rawtext, filepath=None, doc=None, **kwargs):
     'top level block parser, returns list of sections'
     if doc is None:
         doc = Document()
     text = [line.strip() for line in rawtext]
     for t in get_section_forest(rawtext, text):
-        doc.append(Section(t, rawtext, text, **kwargs))
+        doc.append(Section(t, rawtext, text, filepath=filepath, **kwargs))
     return doc
 
 def parse_file(filename, **kwargs):
     'read RUsT from specified file'
     with open(filename, 'rU') as ifile:
         rawtext = ifile.read().split('\n')
-    return parse_rust(rawtext, **kwargs)
+    return parse_rust(rawtext, filename, **kwargs)
     
 def parse_files(filenames, **kwargs):
     'read RUsT from specified files'
@@ -328,20 +340,49 @@ def parse_files(filenames, **kwargs):
     for filename in filenames:
         with open(filename, 'rU') as ifile:
             rawtext = ifile.read().split('\n')
-        parse_rust(rawtext, doc, **kwargs)
+        parse_rust(rawtext, filename, doc, **kwargs)
     return doc
     
-def index_rust(tree, d=None):
+def index_rust(tree, d=None, formatDict=None):
     'build flat index of block IDs'
     if d is None:
         d = {}
+    if formatDict is None:
+        formatDict = {}
     for node in tree.walk():
         if hasattr(node, 'tokens') and len(node.tokens) > 1:
-            d[node.tokens[1]] = node
-    return d
+            if node.tokens[0] == ':format:':
+                s = '\n'.join(node.text)
+                formatDict[node.tokens[1]] = Template(s)
+            else:
+                d[node.tokens[1]] = node
+    return d, formatDict
 
-def parse_select(rawtext):
-    'parse a SELECT directive text, return forest of Block nodes'
+def load_source_path(srcpath, filterFunc=lambda s:s.endswith('.rst'),
+                     ongoing=[]):
+    if srcpath in ongoing:
+        print 'WARNING: infinite .. select:: loop blocked:', srcpath
+        return None
+    ongoing.append(srcpath) # push onto stack so we can detect infinite loop
+    srcpath = os.path.expanduser(srcpath)
+    if os.path.isdir(srcpath): # walk directory for all files
+        srcfiles = []
+        for dirpath, dirnames, filenames in os.walk(srcpath):
+            for filename in filenames:
+                if filterFunc(filename):
+                    srcfiles.append(os.path.join(dirpath, filename))
+    else: # single file
+        srcfiles = [srcpath]
+    tree = parse_files(srcfiles)
+    ongoing.pop() # all done, so pop from stack
+    return index_rust(tree)
+
+def parse_select(rawtext, srcpath, filepath):
+    'parse a SELECT directive text, return forest of :select: nodes'
+    t = load_source_path(srcpath)
+    if t is None: # blocked infinite loop, so can't process directive
+        return None
+    srcDict, formatDict = t
     results = []
     stack = []
     for line in rawtext:
@@ -350,12 +391,15 @@ def parse_select(rawtext):
             continue
         if tokens[0] != '*':
             raise ValueError('not a list element: ' + line)
-        node = Block([':select:', tokens[1]], None, None)
+        node = Block((':select:',), None, None, sourceID=tokens[1],
+                     filepath=filepath)
         params = {}
         for param in tokens[2:]: # copy parameter settings to node
             k,v = [s.strip() for s in param.split('=')]
             params[k] = v
         node.selectParams = params
+        node.srcDict = srcDict
+        node.formatDict = formatDict
         indent = line.index('*')
         while stack and stack[-1][0] >= indent: # pop stack if not within
             stack.pop()
@@ -366,16 +410,17 @@ def parse_select(rawtext):
         stack.append((indent, node)) # push onto stack
     return results
 
-def apply_select(tree, sourceDict):
-    'replace :select: nodes with desired content from sourceDict'
+def apply_select(tree):
+    'replace :select: nodes with desired content from node.srcDict'
     for i,node in enumerate(tree.children):
         if node.tokens[0] == ':select:':
-            sourceNode = sourceDict[node.tokens[1]]
+            sourceNode = node.srcDict[node.sourceID]
             c = sourceNode.copy()
             c.selectParams = node.selectParams
+            c.formatDict = node.formatDict
             tree.children[i] = c # source node replaces target node
         else: # recurse down tree
-            apply_select(node, sourceDict)
+            apply_select(node)
 
 def indented(indent, lines):
     'indent the lines based on the indent prefix'
@@ -420,18 +465,15 @@ def multichoice_pp(node, rawtext):
             break
     return items
 
-def test_select(sourceFiles=('bayes.rst', 'modeling.rst', 'condprob.rst',
-                             'hypotest.rst', 'hmm.rst', 'align.rst',
-                             'phylogeny.rst'),
-                selectFile='hw1.rst'):
-    'basic test of applying select directive to source content'
-    source = parse_files(sourceFiles)
-    sourceDict = index_rust(source)
+def process_select(selectFile):
+    'read RUsT containing SELECT statements, process them'
     selection = parse_file(selectFile)
-    apply_select(selection, sourceDict)
+    apply_select(selection)
     return selection
 
-def get_text_list(tree, templateDict, postprocDict, **kwargs):
+
+def get_text_list(tree, postprocDict, **kwargs):
+    'walk tree and extract text, applying bound templates'
     l = []
     for node in tree.children:
         if hasattr(node, 'selectParams'):
@@ -445,7 +487,7 @@ def get_text_list(tree, templateDict, postprocDict, **kwargs):
             except KeyError:
                 l += getattr(node, 'text', [])
             else:
-                t = templateDict[formatID]
+                t = node.formatDict[formatID]
                 s = t.render(this=node, children=node.children,
                              indented=indented, directive=directive,
                              getattr=getattr, len=len, **nodeParams)
@@ -453,16 +495,15 @@ def get_text_list(tree, templateDict, postprocDict, **kwargs):
                 continue
         else:
             l += getattr(node, 'text', [])
-            l += get_text_list(node, templateDict, postprocDict, **kwargs)
+            l += get_text_list(node, postprocDict, **kwargs)
     return l
 
 # define metadata that require post-processing
 PostprocDict = {'multichoice':multichoice_pp}
 
-def get_text(tree, templateDict={},
-             postprocDict=PostprocDict,
+def get_text(tree, postprocDict=PostprocDict,
              insertVspace='', insertPagebreak=False, **kwargs):
-    l = get_text_list(tree, templateDict, postprocDict,
+    l = get_text_list(tree, postprocDict,
                       insertVspace=insertVspace,
                       insertPagebreak=insertPagebreak, **kwargs)
     return '\n'.join(l)
@@ -473,7 +514,6 @@ if __name__ == '__main__':
         infile, outfile = sys.argv[1:]
     except ValueError:
         print 'usage: %s INRSTFILE OUTRSTFILE' % sys.argv[0]
-    s = test_select(selectFile=infile)
-    templateDict = read_formats('formats.rst')
+    tree = process_select(infile)
     with open(outfile, 'w') as ofile:
-        ofile.write(get_text(s, templateDict))
+        ofile.write(get_text(tree))

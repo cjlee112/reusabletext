@@ -1,6 +1,7 @@
 import re
 import glob
 import csv
+import os.path
 
 class Section(object):
     ''
@@ -247,11 +248,15 @@ def parse_directive(line):
     return content, (dlabel,)
 
 def question_html(content, directive, imageList=None, imageRoot='/images/',
-                  **kwargs):
+                  filepath=None, **kwargs):
     if directive == 'figure' or directive == 'image':
         path = content.split('\n')[0]
         if imageList is not None:
-            imageList.append(path)
+            if filepath and not os.path.isabs(path):
+                imagePath = os.path.join(os.path.dirname(filepath), path)
+                imageList.append(os.path.normpath(imagePath))
+            else:
+                imageList.append(path)
         return '<BR><IMG SRC="%s%s">\n' % (imageRoot, path)
     elif directive == 'math':
         return '$$%s$$\n' % content
