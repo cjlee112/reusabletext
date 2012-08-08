@@ -84,7 +84,9 @@ path to a file or directory containing the ReusableText database.
 The ``multichoice_slide`` format is tailored to output a slide
 posing a multiple choice question to the class, plus an additional
 slide presenting the answer.  The ``slide`` format just follows
-a standard beamer-style slide format.  It outputs the following
+a standard beamer-style slide format.  
+
+The ReusableText preprocessor outputs the following
 reStructuredText, which in turn will generates slides via
 `rst2beamer <http://www.agapow.net/software/rst2beamer>`_ 
 and ``pdflatex``::
@@ -220,6 +222,15 @@ as the standard amount of indentation to use.
 
 Currently, the set of allowed metadata blocks is set as a list
 of metadata tags that are treated as metadata block starts.
+The current default list is::
+
+  ':question:', ':answer:', ':error:', ':intro:',
+  ':warning:', ':comment:', ':informal-definition:',
+  ':formal-definition:', ':derivation:',
+  '.. select::', ':format:', ':multichoice:'
+
+You can change this list by passing the keyword argument
+``blockTokens=[your-list]`` to the ``parse_rust()`` function.
 
 All other metadata tags will be treated as **metadata values**,
 i.e. a one-line tag:value pair.  The following metadata values
@@ -230,6 +241,29 @@ are treated specially:
   of the ``select`` directive, see below).
 * ``:title:`` in a ReusableText block, will be bound to that block
   as its title string.
+
+Metadata values are *extracted* from the block or section
+they are in (leaving behind pure reST with no metadata lines
+cluttering it).  The metadata values are then bound to the
+ReusableText object representing that block (or section),
+as object attributes that can be used by the preprocessor.
+
+**Note**: the list of standard reST metadata tags used as
+directive options are *not* extracted, since they are required
+for the validity of the reST directives in which they are contained.
+The standard reST metadata tags are::
+
+  ':width:',':alt:', ':height:', ':scale:',
+  ':align:', ':target:', ':figwidth:',
+  ':figclass:', ':subtitle:', ':header:',
+  ':widths:', ':header-rows:', ':stub-columns:',
+  ':file:', ':url:', ':encoding:',
+  ':delim:', ':quote:', ':keepspace:', ':escape:',
+  ':depth:', ':local:', ':backlinks:',
+  ':prefix:', ':suffix:', ':start:', ':ltrim:',
+  ':rtrim:', ':trim:', ':start-line:', ':end-line:',
+  ':start-after:', ':end-before:', ':literal:',
+  ':code:', ':number-lines:', ':tab-width:'
 
 The :format: metadata block
 ...........................
@@ -334,7 +368,7 @@ the following simple form::
 
 The *path to database* argument can be either a file, or a 
 directory.  In the latter case, all files within that directory
-(or subdirectories) with ``.rst`` suffix will be scanned.
+(and its subdirectories) with the ``.rst`` suffix will be scanned.
 The path can be absolute, relative, or user-relative (i.e.
 any path beginning with ``~`` or ``~some_username`` will be
 properly expanded to that user's home directory).
@@ -347,7 +381,7 @@ The ``format`` value must be the identifier of a ``:format:``
 defined in the ReusableText source database, to be used as
 the Jinja2 template for formatting this content.
 
-The ReusableText Pre-processor
+The ReusableText Preprocessor
 ------------------------------
 
 Currently, ReusableText is implemented as a preprocessor that
