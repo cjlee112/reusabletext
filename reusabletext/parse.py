@@ -299,14 +299,17 @@ class Block(BlockBase):
 
 class Section(Block):
     'a ReST section, containing text, subblocks and / or subsections'
-    def __init__(self, t, rawtext, text, filepath=None, **kwargs):
+    def __init__(self, t, rawtext, text, blockTokens=defaultBlocks,
+                 filepath=None, **kwargs):
         start, stop, title, level = t[:4]
         Block.__init__(self, ('section',), rawtext[start:stop],
-                       text[start:stop], filepath=filepath,
+                       text[start:stop], blockTokens=blockTokens,
+                       filepath=filepath,
                        title=(title,), level=level, **kwargs)
         if len(t) > 4: # append subsections after subblocks
             for subsection in t[4]:
                 self.children.append(Section(subsection, rawtext, text,
+                                             blockTokens=blockTokens,
                                              filepath=filepath))
         for line in getattr(self, 'metadata', ()):
             if line.startswith(':ID:'): # extract section ID
