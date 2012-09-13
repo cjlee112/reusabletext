@@ -55,12 +55,14 @@ def save_question_csv(questions, csvfile, postprocDict,
         s = get_html(q.text, filepath=q.filepath, imageList=imageFiles)
         answer = get_html(q.answer[0], filepath=q.filepath,
                           imageList=imageFiles)
+        errorModels = [get_html(e) for e in getattr(q, 'error', ())]
         if hasattr(q, 'multichoice'): # multiple choice format
             choices = [get_html(c) for c in q.multichoice[0]]
-            writer.writerow(('mc', q.title[0], s, answer, q.correct)
-                            + tuple(choices))
+            writer.writerow(('mc', q.title[0], s, answer, len(errorModels))
+                            + tuple(errorModels) + (q.correct,) + tuple(choices))
         else:
-            writer.writerow(('text', q.title[0], s, answer))
+            writer.writerow(('text', q.title[0], s, answer, len(errorModels))
+                            + tuple(errorModels))
     if imageFiles:
         if imagePath:
             for path in imageFiles:
