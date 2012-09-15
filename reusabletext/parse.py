@@ -497,6 +497,9 @@ def get_text_list(tree, postprocDict, **kwargs):
                 l.append(s)
                 continue
         else:
+            title = getattr(node, 'title', (None,))[0]
+            if title: # add reST title
+                l += [title, '-' * len(title)]
             l += getattr(node, 'text', [])
             l += get_text_list(node, postprocDict, **kwargs)
     return l
