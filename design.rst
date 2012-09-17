@@ -427,6 +427,20 @@ The Tool Components
     is always available as attribute ``text``, but the block parser
     can add extra attributes that any output formatter can use if desired.
 
+Selection re-formatting
+-----------------------
+
+General model: selection constructs a dictionary of source content, 
+and passes that to a specified template.
+
+Source content should have standard format:
+
+ID
+[ID1, ID2]
+(var1=EXPR, var2=EXPR)
+
+
+
 
 
 

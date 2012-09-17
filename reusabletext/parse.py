@@ -228,6 +228,7 @@ class Block(BlockBase):
         elif rawtext: # parse sub-blocks, metadata
             self.parse(rawtext, text, blockTokens)
         else: # empty
+            self.text = text
             self.children = []
     def parse(self, rawtext, text, blockTokens):
         'parse into sub-blocks, if any, and extract metadata'
@@ -243,7 +244,7 @@ class Block(BlockBase):
                                             self.indent)
             children.append(Block(tokens, rawtext[start + 1:stop],
                                   text[start + 1:stop], indent, blockTokens,
-                                  self.filepath))
+                                  self.filepath, parent=self))
         if not_empty(text[stop:]):
             addtext, metadata = \
                      extract_metadata(rawtext[stop:], text[stop:], self.indent)
@@ -314,6 +315,49 @@ class Section(Block):
         for line in getattr(self, 'metadata', ()):
             if line.startswith(':ID:'): # extract section ID
                 self.tokens = ('section', line.split()[1])
+            if line.startswith(':defines:'): # extract concept ID
+                self.conceptID = line.split()[1]
+        for i,line in enumerate(text[start:stop]):
+            if line.startswith('.. glossary::'):
+                save_glossary(self, i, rawtext[start:stop], text[start:stop])
+
+def save_glossary(node, start, rawtext, text):
+    'save glossary as node list on node.glossary'
+    subindent = subindent2 = None
+    indent = get_indent(start, rawtext, text)
+    i = start + 1
+    while i < len(text): # find 1st indented glossary term
+        subindent = get_indent(i, rawtext, text)
+        if subindent is not None:
+            break
+        i += 1
+    if not subindent or subindent <= indent:
+        raise ValueError('empty glossary directive!')
+    k = None
+    l = []
+    v = []
+    while i < len(text): # read glossary definitions
+        subindent2 = get_indent(i, rawtext, text)
+        if subindent2 is not None:
+            if subindent2 < subindent:
+                break
+            elif subindent2 == subindent:
+                if k: # save previous definition
+                    l.append((k, v))
+                k = text[i] # start a new definition
+                v = []
+                i += 1
+                continue
+        v.append(text[i])
+        i += 1
+    if k: # save the last glossary definition
+        l.append((k, v))
+    if l: # save glossary as node list
+        nodes = []
+        for k,v in l:
+            nodes.append(Block(('glossary', k), None, v, 0, (), node.filepath))
+        node.glossary = nodes
+
                 
 class Document(BlockBase):
     def __init__(self, **kwargs):
@@ -345,20 +389,43 @@ def parse_files(filenames, **kwargs):
             rawtext = ifile.read().split('\n')
         parse_rust(rawtext, filename, doc, **kwargs)
     return doc
-    
+
+
+class MultiDict(dict):
+    'instead of over-writing existing key, add numbered variant k.2, k.3 etc.'
+    def __setitem__(self, k, v):
+        i = 2
+        k0 = k
+        while self.get(k, v) != v:
+            k = '%s.%d' % (k0, i)
+            i += 1
+        dict.__setitem__(self, k, v)
+
 def index_rust(tree, d=None, formatDict=None):
     'build flat index of block IDs'
     if d is None:
-        d = {}
+        d = MultiDict()
     if formatDict is None:
         formatDict = {}
     for node in tree.walk():
-        if hasattr(node, 'tokens') and len(node.tokens) > 1:
-            if node.tokens[0] == ':format:':
-                s = '\n'.join(node.text)
-                formatDict[node.tokens[1]] = Template(s)
-            else:
-                d[node.tokens[1]] = node
+        try:
+            conceptID = node.parent.conceptID
+        except AttributeError:
+            conceptID = None
+        if hasattr(node, 'glossary'):
+            for gnode in node.glossary:
+                k = 'glossary.' + '_'.join(gnode.tokens[1].split())
+                d[k] = gnode
+        if hasattr(node, 'tokens'):
+            if len(node.tokens) > 1:
+                if node.tokens[0] == ':format:':
+                    s = '\n'.join(node.text)
+                    formatDict[node.tokens[1]] = Template(s)
+                else:
+                    d[node.tokens[1]] = node
+            elif conceptID: # save in conceptID.token format
+                k = conceptID + '.' + node.tokens[0].split(':')[1]
+                d[k] = node
     return d, formatDict
 
 def load_source_path(srcpath, filterFunc=lambda s:s.endswith('.rst'),
@@ -413,15 +480,52 @@ def parse_select(rawtext, srcpath, filepath):
         stack.append((indent, node)) # push onto stack
     return results
 
+def parse_select_list(s, srcDict):
+    'extract [ID1,ID2...] list starting at this point, or return None'
+    if s[0] == '[': # start of a list
+        sources = []
+        for sourceID in s[1:].split(']')[0].split(','):
+            sources.append(srcDict[sourceID])
+        return sources, s.index(']') + 1
+
+def parse_select_dict(s, srcDict):
+    'extract {key=EXPR,key2=EXPR...} starting at this point, or return None'
+    if s[0] == '(': # start of a dict
+        d = {}
+        start = 0
+        tokens = s[1:].split(')')[0].split('=')
+        for i,k in enumerate(tokens[:-1]):
+            k = k[start:]
+            t = parse_select_list(tokens[i + 1], srcDict)
+            if t: # save select-list record
+                d[k] = t[0]
+                if t[1] < len(tokens[i + 1]) and tokens[i + 1][t[1]] != ',':
+                    raise ValueError('missing comma in select-dict')
+                start = t[1] + 1 # skip past the comma
+            else: # treat as single ID
+                sourceID = tokens[i + 1].split(',')[0]
+                d[k] = srcDict[sourceID]
+                start = len(sourceID) + 1 # skip past the comma
+        return d, s.index(')') + 1
+                
+        
 def apply_select(tree):
     'replace :select: nodes with desired content from node.srcDict'
     for i,node in enumerate(tree.children):
         if node.tokens[0] == ':select:':
-            sourceNode = node.srcDict[node.sourceID]
-            c = sourceNode.copy()
-            c.selectParams = node.selectParams
-            c.formatDict = node.formatDict
-            tree.children[i] = c # source node replaces target node
+            t = parse_select_dict(node.sourceID, node.srcDict)
+            if t: # save a dict of source nodes
+                node.selectParams.update(t[0])
+            else:
+                t = parse_select_list(node.sourceID, node.srcDict)
+                if t: # save a list of source nodes
+                    node.selectParams['sources'] = t[0]
+                else: # single ID node
+                    sourceNode = node.srcDict[node.sourceID]
+                    c = sourceNode.copy()
+                    c.selectParams = node.selectParams
+                    c.formatDict = node.formatDict
+                    tree.children[i] = c # source node replaces target node
         else: # recurse down tree
             apply_select(node)
 
