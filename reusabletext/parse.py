@@ -219,7 +219,7 @@ class Block(BlockBase):
         self.filepath = filepath
         self.__dict__.update(kwargs)
         if tokens[0] == '.. select::':
-            result = parse_select(rawtext, tokens[1], filepath)
+            result = parse_select(rawtext, text, tokens[1], filepath)
             if result is None: # couldn't process, so just leave as text
                 self.text = text
                 self.children = []
@@ -447,7 +447,7 @@ def load_source_path(srcpath, filterFunc=lambda s:s.endswith('.rst'),
     ongoing.pop() # all done, so pop from stack
     return index_rust(tree)
 
-def parse_select(rawtext, srcpath, filepath):
+def parse_select(rawtext, text, srcpath, filepath):
     'parse a SELECT directive text, return forest of :select: nodes'
     t = load_source_path(srcpath)
     if t is None: # blocked infinite loop, so can't process directive
@@ -455,29 +455,34 @@ def parse_select(rawtext, srcpath, filepath):
     srcDict, formatDict = t
     results = []
     stack = []
-    for line in rawtext:
+    for item in split_items(rawtext, text):
+        line = item[0]
         tokens = line.strip().split()
-        if not tokens or tokens[0] == '..': # comment, ignore
-            continue
-        if tokens[0] != '*':
-            raise ValueError('not a list element: ' + line)
-        node = Block((':select:',), None, None, sourceID=tokens[1],
+        node = Block((':select:',), None, None, sourceID=tokens[0],
                      filepath=filepath)
         params = {}
-        for param in tokens[2:]: # copy parameter settings to node
+        for param in tokens[1:]: # copy parameter settings to node
             k,v = [s.strip() for s in param.split('=')]
             params[k] = v
+        for pline in item[1:]: # copy metadata as parameters to node
+            if pline:
+                k = pline.split()[0]
+                if k[0] == ':' and k[-1] == ':':
+                    params[k[1:-1]] = pline[len(k):].strip()
+                else:
+                    raise ValueError('bad SELECT parameter line: ' + pline)
         node.selectParams = params
         node.srcDict = srcDict
         node.formatDict = formatDict
-        indent = line.index('*')
-        while stack and stack[-1][0] >= indent: # pop stack if not within
-            stack.pop()
-        if stack: # add as child of existing node
-            stack[-1][1].children.append(node)
-        else: # save as top-level node
-            results.append(node)
-        stack.append((indent, node)) # push onto stack
+        results.append(node)
+        ## indent = line.index('*')
+        ## while stack and stack[-1][0] >= indent: # pop stack if not within
+        ##     stack.pop()
+        ## if stack: # add as child of existing node
+        ##     stack[-1][1].children.append(node)
+        ## else: # save as top-level node
+        ##     results.append(node)
+        ## stack.append((indent, node)) # push onto stack
     return results
 
 def parse_select_list(s, srcDict):
@@ -597,7 +602,8 @@ def get_text_list(tree, postprocDict, **kwargs):
                 t = node.formatDict[formatID]
                 s = t.render(this=node, children=node.children,
                              indented=indented, directive=directive,
-                             getattr=getattr, len=len, **nodeParams)
+                             getattr=getattr, len=len,
+                             kwargs=nodeParams, **nodeParams)
                 l.append(s)
                 continue
         else:
