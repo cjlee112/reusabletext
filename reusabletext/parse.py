@@ -414,7 +414,8 @@ def index_rust(tree, d=None, formatDict=None):
             conceptID = None
         if hasattr(node, 'glossary'):
             for gnode in node.glossary:
-                k = 'glossary.' + '_'.join(gnode.tokens[1].split())
+                term = '_'.join(gnode.tokens[1].split()).replace(',', ';')
+                k = 'glossary.' + term
                 d[k] = gnode
         if hasattr(node, 'tokens'):
             if len(node.tokens) > 1:
