@@ -612,7 +612,7 @@ def get_text_list(tree, postprocDict, **kwargs):
                 t = node.formatDict[formatID]
                 s = t.render(this=node, children=node.children,
                              indented=indented, directive=directive,
-                             getattr=getattr, len=len,
+                             getattr=getattr, len=len, int=int,
                              kwargs=nodeParams, **nodeParams)
                 l.append(s)
                 continue
