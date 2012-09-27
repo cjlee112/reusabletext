@@ -408,6 +408,15 @@ def index_rust(tree, d=None, formatDict=None):
     if formatDict is None:
         formatDict = {}
     for node in tree.walk():
+        for line in getattr(node, 'metadata', ()):
+            if line.startswith(':proves:'): # extract concept.proof
+                k = line.split()[1] + '.proof'
+                d[k] = node
+        try:
+            k = node.conceptID + '.definition'
+            d[k] = node
+        except AttributeError:
+            pass
         try:
             conceptID = node.parent.conceptID
         except AttributeError:
