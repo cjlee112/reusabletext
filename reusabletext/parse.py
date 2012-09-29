@@ -401,6 +401,14 @@ class MultiDict(dict):
             i += 1
         dict.__setitem__(self, k, v)
 
+def standardize_identifier(s, replacements={',':';', '(':'', ')':''}):
+    'remove / replace characters not allowed in identifiers'
+    s = '_'.join(s.split()) # replace whitespace
+    for k,v in replacements.items():
+        s = s.replace(k, v)
+    return s
+    
+
 def index_rust(tree, d=None, formatDict=None):
     'build flat index of block IDs'
     if d is None:
@@ -410,20 +418,20 @@ def index_rust(tree, d=None, formatDict=None):
     for node in tree.walk():
         for line in getattr(node, 'metadata', ()):
             if line.startswith(':proves:'): # extract concept.proof
-                k = line.split()[1] + '.proof'
+                k = standardize_identifier(line.split()[1]) + '.proof'
                 d[k] = node
         try:
-            k = node.conceptID + '.definition'
+            k = standardize_identifier(node.conceptID) + '.definition'
             d[k] = node
         except AttributeError:
             pass
         try:
-            conceptID = node.parent.conceptID
+            conceptID = standardize_identifier(node.parent.conceptID)
         except AttributeError:
             conceptID = None
         if hasattr(node, 'glossary'):
             for gnode in node.glossary:
-                term = '_'.join(gnode.tokens[1].split()).replace(',', ';')
+                term = standardize_identifier(gnode.tokens[1])
                 k = 'glossary.' + term
                 d[k] = gnode
         if hasattr(node, 'tokens'):
@@ -432,19 +440,23 @@ def index_rust(tree, d=None, formatDict=None):
                     s = '\n'.join(node.text)
                     formatDict[node.tokens[1]] = Template(s)
                 else:
-                    d[node.tokens[1]] = node
+                    d[standardize_identifier(node.tokens[1])] = node
             elif conceptID: # save in conceptID.token format
                 k = conceptID + '.' + node.tokens[0].split(':')[1]
                 d[k] = node
     return d, formatDict
 
 def load_source_path(srcpath, filterFunc=lambda s:s.endswith('.rst'),
-                     ongoing=[]):
+                     ongoing=[], selectIndexCache={}):
     if srcpath in ongoing:
         print 'WARNING: infinite .. select:: loop blocked:', srcpath
         return None
     ongoing.append(srcpath) # push onto stack so we can detect infinite loop
     srcpath = os.path.expanduser(srcpath)
+    ## try:
+    ##     return selectIndexCache[srcpath]
+    ## except KeyError:
+    ##     pass
     if os.path.isdir(srcpath): # walk directory for all files
         srcfiles = []
         for dirpath, dirnames, filenames in os.walk(srcpath):
@@ -455,7 +467,9 @@ def load_source_path(srcpath, filterFunc=lambda s:s.endswith('.rst'),
         srcfiles = [srcpath]
     tree = parse_files(srcfiles)
     ongoing.pop() # all done, so pop from stack
-    return index_rust(tree)
+    d = index_rust(tree)
+    ## selectIndexCache[srcpath] = d
+    return d
 
 def parse_select(rawtext, text, srcpath, filepath):
     'parse a SELECT directive text, return forest of :select: nodes'
