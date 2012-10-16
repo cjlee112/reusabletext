@@ -166,8 +166,9 @@ def is_metadata(line, excludeTags=docutilsMetadata):
     'matches any line beginning with :foobar: pattern'
     if line and line[0] == ':':
         token = line.split()[0]
-        return token[-1] == ':' and len(token) > 2 and \
-               token not in excludeTags
+        tokens = token.split(':')
+        return len(tokens) == 3 and len(token) > 2 and \
+               tokens[2] == '' and token not in excludeTags
             
 
 def extract_metadata(rawtext, text, indent):
