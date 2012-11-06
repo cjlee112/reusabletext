@@ -461,6 +461,8 @@ def load_source_path(srcpath, filterFunc=lambda s:s.endswith('.rst'),
     if os.path.isdir(srcpath): # walk directory for all files
         srcfiles = []
         for dirpath, dirnames, filenames in os.walk(srcpath):
+            if os.path.exists(os.path.join(dirpath, '.rust_ignore')):
+                continue # do not index files in this directory
             for filename in filenames:
                 if filterFunc(filename):
                     srcfiles.append(os.path.join(dirpath, filename))
