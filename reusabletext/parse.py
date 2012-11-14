@@ -337,6 +337,7 @@ def save_glossary(node, start, rawtext, text):
     k = None
     l = []
     v = []
+    subindent3 = 0
     while i < len(text): # read glossary definitions
         subindent2 = get_indent(i, rawtext, text)
         if subindent2 is not None:
@@ -348,8 +349,11 @@ def save_glossary(node, start, rawtext, text):
                 k = text[i] # start a new definition
                 v = []
                 i += 1
+                subindent3 = 0
                 continue
-        v.append(text[i])
+            elif subindent3 == 0: # save first def line indentation
+                subindent3 = subindent2
+        v.append(rawtext[i][subindent3:])
         i += 1
     if k: # save the last glossary definition
         l.append((k, v))
@@ -644,11 +648,8 @@ def get_text_list(tree, postprocDict, **kwargs):
 # define metadata that require post-processing
 PostprocDict = {'multichoice':multichoice_pp}
 
-def get_text(tree, postprocDict=PostprocDict,
-             insertVspace='', insertPagebreak=False, **kwargs):
-    l = get_text_list(tree, postprocDict,
-                      insertVspace=insertVspace,
-                      insertPagebreak=insertPagebreak, **kwargs)
+def get_text(tree, postprocDict=PostprocDict, **kwargs):
+    l = get_text_list(tree, postprocDict, **kwargs)
     return '\n'.join(l)
 
 if __name__ == '__main__':
