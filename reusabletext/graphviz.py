@@ -260,6 +260,8 @@ def question_html(content, directive, imageList=None, imageRoot='/images/',
         return '<BR><IMG SRC="%s%s">\n' % (imageRoot, path)
     elif directive == 'math':
         return '$$%s$$\n' % content
+    else: # can't handle this directive, just throw it away
+        return ''
 
 def list_html(content, **kwargs):
     return '<LI>' + content + '</LI>\n'
