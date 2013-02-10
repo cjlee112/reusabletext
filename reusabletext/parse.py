@@ -575,7 +575,10 @@ def indented(indent, lines):
 
 def directive(name, v, text):
     'make a ReST directive'
-    return indented('.. ', '%s:: %s\n\n%s' % (name, v, text))
+    if isinstance(text, list):
+        return indented('.. ', ['%s:: %s' % (name, v)] + text)
+    else:
+        return indented('.. ', '%s:: %s\n\n%s' % (name, v, text))
 
 
 def read_formats(filename):
