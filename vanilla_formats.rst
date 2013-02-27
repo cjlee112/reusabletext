@@ -18,8 +18,10 @@
 
   {{ make_title(this.title[0], this.level) }}
 
-  {% if hasattr(this, 'conceptID') %}
-  {{ '(`View Wikipedia definition <http://en.wikipedia.org/wiki/%s>`_)' % this.conceptID }}
+  {% if getattr(this, 'conceptID', False) %}
+  {% for conceptID in this.conceptID.split(',') %}
+  {{ '(View Wikipedia definition: `%s <http://en.wikipedia.org/wiki/%s>`_)' % (conceptID.replace('_', ' '), conceptID) }}
+  {% endfor %}
   {% endif %}
 
   {{ '\n'.join(this.text) }}
