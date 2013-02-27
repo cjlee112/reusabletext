@@ -68,6 +68,10 @@ class Reformatter(object):
         self.open(outfile)
         try:
             apply_walk(tree, self.render)
+            print >> self.ifile, '''
+
+View `ReusableText Source <%s>`_
+''' % os.path.basename(infile)
         finally:
             self.close()
         
