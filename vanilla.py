@@ -1,5 +1,5 @@
 from reusabletext import parse
-
+import os
 
 def hide_children(node):
     for c in node.children:
@@ -80,3 +80,56 @@ def apply_walk(node, func):
     func(node)
     for c in node.children:
         apply_walk(c, func)
+
+def find_rst_files(topdir, suffix='.rst'):
+    'get all .rst files in topdir'
+    for dirpath, dirnames, filenames in os.walk(topdir):
+        for fn in filenames:
+            if fn.endswith(suffix):
+                yield os.path.join(dirpath, fn)
+
+def get_reformat_targets(topdir, excludeFile='exclude_reformat.txt'):
+    'get all rust files to be reformatted'
+    with open(os.path.join(topdir, excludeFile), 'rU') as ifile:
+        excludeFiles = [s.strip() for s in ifile if s and not s.isspace()]
+    l = []
+    for path in find_rst_files(topdir):
+        addThis = True
+        for xf in excludeFiles: # check if path excluded
+            if path.endswith(xf):
+                addThis = False
+                break
+        if addThis:
+            l.append(path)
+    return l
+
+def reformat_file(reformatter, target, tag='_vanilla'):
+    'reformat foo.rst --> foo_vanilla.rst and return output path'
+    pos = target.rindex('.') # find file suffix position
+    output = target[:pos] + tag + target[pos:]
+    reformatter.reformat(target, output)
+    return output
+
+def reformat_all(reformatFile, indexFile='index_vanilla.rst',
+                 formatFile='vanilla_formats.rst'):
+    'reformat all RuST in topdir, using specified templates'
+    dirpath = os.path.dirname(reformatFile)
+    with open(reformatFile, 'rU') as ifile:
+        files = [os.path.join(dirpath, s.strip()) for s in ifile
+                 if s and not s.isspace()]
+    files.sort()
+    formatDict = parse.read_formats(formatFile)
+    reformatter = Reformatter(formatDict)
+    with open(indexFile, 'w') as ifile:
+        print >>ifile, '''
+###################################################
+Open Bioinformatics Teaching Consortium Release 0.1
+###################################################
+
+.. toctree::
+   :maxdepth: 2
+
+'''
+        for target in files:
+            s = reformat_file(reformatter, target)
+            print >>ifile, '   ' + s[:s.rindex('.')]
