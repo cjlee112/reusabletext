@@ -17,15 +17,17 @@ def make_slides_and_csv(ctfile, imagepath, title='Concept Tests'):
     print 'writing', rstout
     with open(rstout, 'w') as ofile:
         ofile.write(parse.get_text(tree))
-    return rstout
+    return rstout, tree
 
-def make_tex(slidesfile):
+def make_tex(slidesfile, usePDFPages=False):
     'convert RST slides to TEX using rst2beamer'
     import rst2beamer
     description = 'rst2beamer output'
     filestem = slidesfile.split('.')[0]
     texfile = filestem + '.tex'
     argv = ['--overlaybullets=false', slidesfile, texfile]
+    if usePDFPages:
+        argv.insert(1, '--use-pdfpages')
     print 'writing', texfile
     rst2beamer.publish_cmdline(writer=rst2beamer.BeamerWriter(),
                                description=description,
@@ -71,7 +73,13 @@ def save_question_csv(questions, csvfile, postprocDict,
         else:
             print 'WARNING: no path to copy image files:', imageFiles
     ofile.close()
-            
+
+
+def check_fileselect(tree):
+    'check whether document contains fileselect nodes'
+    for node in tree.walk():
+        if getattr(node, 'tokens', ('ignore',))[0] == ':fileselect:':
+            return True
 
 if __name__ == '__main__':
     import sys
@@ -79,7 +87,8 @@ if __name__ == '__main__':
         infile, imagepath = sys.argv[1:]
     except ValueError:
         print 'usage: %s INRSTFILE IMAGEDIR' % sys.argv[0]
-    rstout = make_slides_and_csv(infile, imagepath)
-    texfile = make_tex(rstout) # generate beamer latex
+    rstout, tree = make_slides_and_csv(infile, imagepath)
+    usePDFPages = check_fileselect(tree) # do we need pdfpages package?
+    texfile = make_tex(rstout, usePDFPages) # generate beamer latex
     print 'running pdflatex...'
     subprocess.call(['pdflatex', texfile])
