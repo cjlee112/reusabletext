@@ -453,11 +453,11 @@ def index_rust(tree, d=None, formatDict=None):
 
 def load_source_path(srcpath, filterFunc=lambda s:s.endswith('.rst'),
                      ongoing=[], selectIndexCache={}):
+    srcpath = os.path.abspath(srcpath)
     if srcpath in ongoing:
         print 'WARNING: infinite .. select:: loop blocked:', srcpath
         return None
     ongoing.append(srcpath) # push onto stack so we can detect infinite loop
-    srcpath = os.path.expanduser(srcpath)
     ## try:
     ##     return selectIndexCache[srcpath]
     ## except KeyError:
@@ -478,8 +478,28 @@ def load_source_path(srcpath, filterFunc=lambda s:s.endswith('.rst'),
     ## selectIndexCache[srcpath] = d
     return d
 
+def parse_select_item(item):
+    'extract item and associated params from text list'
+    line = item[0]
+    tokens = line.strip().split()
+    params = {}
+    for param in tokens[1:]: # copy parameter settings to node
+        k,v = [s.strip() for s in param.split('=')]
+        params[k] = v
+    for pline in item[1:]: # copy metadata as parameters to node
+        if pline:
+            k = pline.split()[0]
+            if k[0] == ':' and k[-1] == ':':
+                params[k[1:-1]] = pline[len(k):].strip()
+            else:
+                raise ValueError('bad SELECT parameter line: ' + pline)
+    return tokens[0], params
+
 def parse_select(rawtext, text, srcpath, filepath):
     'parse a SELECT directive text, return forest of :select: nodes'
+    srcpath = expand_path(srcpath, filepath)
+    if os.path.isfile(srcpath) and not srcpath.lower().endswith('.rst'):
+        return parse_file_select(rawtext, text, srcpath, filepath)
     t = load_source_path(srcpath)
     if t is None: # blocked infinite loop, so can't process directive
         return None
@@ -487,21 +507,9 @@ def parse_select(rawtext, text, srcpath, filepath):
     results = []
     stack = []
     for item in split_items(rawtext, text):
-        line = item[0]
-        tokens = line.strip().split()
-        node = Block((':select:',), None, None, sourceID=tokens[0],
+        sourceID, params = parse_select_item(item)
+        node = Block((':select:',), None, None, sourceID=sourceID,
                      filepath=filepath)
-        params = {}
-        for param in tokens[1:]: # copy parameter settings to node
-            k,v = [s.strip() for s in param.split('=')]
-            params[k] = v
-        for pline in item[1:]: # copy metadata as parameters to node
-            if pline:
-                k = pline.split()[0]
-                if k[0] == ':' and k[-1] == ':':
-                    params[k[1:-1]] = pline[len(k):].strip()
-                else:
-                    raise ValueError('bad SELECT parameter line: ' + pline)
         node.selectParams = params
         node.srcDict = srcDict
         node.formatDict = formatDict
@@ -515,6 +523,39 @@ def parse_select(rawtext, text, srcpath, filepath):
         ##     results.append(node)
         ## stack.append((indent, node)) # push onto stack
     return results
+
+includePDFformats = {
+    'includepdf':Template('''
+.. raw:: latex
+
+   %%rst2beamer:endframe
+
+   \includepdf[ {{- selectArgs -}} ]{ {{- srcpath -}} }
+
+   %%
+
+''')
+    }
+
+def expand_path(path, relativeToFile):
+    'expand env vars, ~, relative to file path if not absolute'
+    path = os.path.expanduser(os.path.expandvars(path))
+    relativeToDir = os.path.dirname(relativeToFile)
+    return os.path.join(relativeToDir, path)
+
+def parse_file_select(rawtext, text, srcpath, filepath,
+                      formatDict=includePDFformats):
+    'extract file selection items'
+    results = []
+    for item in split_items(rawtext, text):
+        selectArgs, params = parse_select_item(item)
+        selectParams = dict(format='includepdf', selectArgs=selectArgs,
+                            srcpath=srcpath)
+        node = Block((':fileselect:',), None, None, selectParams=selectParams,
+                     filepath=filepath, formatDict=formatDict)
+        results.append(node)
+    return results
+
 
 def parse_select_list(s, srcDict):
     'extract [ID1,ID2...] list starting at this point, or return None'
