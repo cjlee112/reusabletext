@@ -1,4 +1,6 @@
 import os
+import subprocess
+import warnings
 try:
     from jinja2 import Template
 except ImportError:
@@ -543,9 +545,35 @@ def expand_path(path, relativeToFile):
     relativeToDir = os.path.dirname(relativeToFile)
     return os.path.join(relativeToDir, path)
 
-def parse_file_select(rawtext, text, srcpath, filepath,
-                      formatDict=includePDFformats):
-    'extract file selection items'
+def convert_to_pdf(srcpath, pdfDir='_converted_pdf',
+                   cmd=['unoconv', '-f', 'pdf']):
+    'convert external format to PDF for pdf page selection'
+    stem = os.path.basename(srcpath)
+    pos = stem.rfind('.')
+    if pos >= 0:
+        stem = stem[:pos] # remove .suffix from filename
+    pdfpath = os.path.join(pdfDir, stem + '.pdf')
+    if os.path.isfile(pdfpath) and \
+       os.path.getmtime(pdfpath) > os.path.getmtime(srcpath):
+        return pdfpath # up to date, no need to do anything
+    try: # create the directory if needed
+        os.makedirs(pdfDir)
+    except OSError:
+        if not os.path.isdir(pdfDir):
+            raise
+    cmd += ['-o', pdfDir, srcpath]
+    warnings.warn('Converting %s to PDF; this might take a minute or so...'
+                  % srcpath)
+    print ' '.join(cmd) # print the command so user can see it...
+    try:
+        subprocess.check_call(cmd) # run the conversion
+    except OSError:
+        raise OSError('PDF conversion failed: unable to run %s' % cmd[0])
+    return pdfpath
+    
+def parse_pdf_select(rawtext, text, srcpath, filepath,
+                     formatDict=includePDFformats):
+    'extract PDF pages using includepdf latex'
     results = []
     for item in split_items(rawtext, text):
         selectArgs, params = parse_select_item(item)
@@ -556,6 +584,11 @@ def parse_file_select(rawtext, text, srcpath, filepath,
         results.append(node)
     return results
 
+def parse_file_select(rawtext, text, srcpath, filepath):
+    'toplevel fileselect dispatcher'
+    if not srcpath.lower().endswith('.pdf'):
+        srcpath = convert_to_pdf(srcpath) # try to convert to PDF
+    return parse_pdf_select(rawtext, text, srcpath, filepath)
 
 def parse_select_list(s, srcDict):
     'extract [ID1,ID2...] list starting at this point, or return None'
