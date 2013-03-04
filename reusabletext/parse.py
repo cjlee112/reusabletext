@@ -1,4 +1,6 @@
 import os
+import shutil
+import urllib2
 import subprocess
 import warnings
 try:
@@ -499,7 +501,10 @@ def parse_select_item(item):
 
 def parse_select(rawtext, text, srcpath, filepath):
     'parse a SELECT directive text, return forest of :select: nodes'
-    srcpath = expand_path(srcpath, filepath)
+    if srcpath.startswith('http:') or srcpath.startswith('https:'):
+        srcpath = download_file(srcpath) # download local file
+    else:
+        srcpath = expand_path(srcpath, filepath)
     if os.path.isfile(srcpath) and not srcpath.lower().endswith('.rst'):
         return parse_file_select(rawtext, text, srcpath, filepath)
     t = load_source_path(srcpath)
@@ -545,6 +550,15 @@ def expand_path(path, relativeToFile):
     relativeToDir = os.path.dirname(relativeToFile)
     return os.path.join(relativeToDir, path)
 
+def mkdir_if_needed(dirpath):
+    'create the directory if needed'
+    try:
+        os.makedirs(dirpath)
+    except OSError:
+        if not os.path.isdir(dirpath):
+            raise
+
+
 def convert_to_pdf(srcpath, pdfDir='_converted_pdf',
                    cmd=['unoconv', '-f', 'pdf']):
     'convert external format to PDF for pdf page selection'
@@ -555,12 +569,10 @@ def convert_to_pdf(srcpath, pdfDir='_converted_pdf',
     pdfpath = os.path.join(pdfDir, stem + '.pdf')
     if os.path.isfile(pdfpath) and \
        os.path.getmtime(pdfpath) > os.path.getmtime(srcpath):
+        warnings.warn('%s already converted, cached as %s'
+                      % (srcpath, pdfpath))
         return pdfpath # up to date, no need to do anything
-    try: # create the directory if needed
-        os.makedirs(pdfDir)
-    except OSError:
-        if not os.path.isdir(pdfDir):
-            raise
+    mkdir_if_needed(pdfDir)
     cmd += ['-o', pdfDir, srcpath]
     warnings.warn('Converting %s to PDF; this might take a minute or so...'
                   % srcpath)
@@ -568,6 +580,10 @@ def convert_to_pdf(srcpath, pdfDir='_converted_pdf',
     try:
         subprocess.check_call(cmd) # run the conversion
     except OSError:
+        try:
+            os.unlink(pdfpath) # ensure that we don't leave a bad copy
+        except:
+            pass
         raise OSError('PDF conversion failed: unable to run %s' % cmd[0])
     return pdfpath
     
@@ -583,6 +599,27 @@ def parse_pdf_select(rawtext, text, srcpath, filepath,
                      filepath=filepath, formatDict=formatDict)
         results.append(node)
     return results
+
+def download_file(url, downloadDir='_downloaded'):
+    'get the specified URL and return the downloaded file path'
+    path = os.path.join(downloadDir, url.split('/')[-1])
+    if os.path.isfile(path): # already downloaded, nothing to do
+        warnings.warn('%s already downloaded, cached as %s' % (url, path))
+        return path
+    mkdir_if_needed(downloadDir)
+    warnings.warn('Downloading %s...' % url)
+    req = urllib2.urlopen(url)
+    try:
+        with open(path, 'wb') as ifile:
+            shutil.copyfileobj(req, ifile) # save the file contents
+    except BaseException as e: # catch all possible errors
+        try:
+            os.unlink(path) # ensure that we don't leave a bad copy
+        except:
+            pass
+        raise e # report the original error
+    return path
+    
 
 def parse_file_select(rawtext, text, srcpath, filepath):
     'toplevel fileselect dispatcher'
