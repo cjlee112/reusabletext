@@ -214,6 +214,70 @@ class BlockBase(object):
             for node in c.walk():
                 yield node
         yield self
+    def metadata_dict(self):
+        '''save metadata as dict values containing list of one
+        or more values'''
+        try:
+            return self._metadata
+        except AttributeError:
+            pass
+        d = {}
+        try:
+            metadata = self.metadata
+        except AttributeError:
+            return d
+        for line in metadata:
+            attr = line.split(':')[1]
+            v = line[len(attr) + 2:].lstrip()
+            try:
+                d[attr].append(v)
+            except KeyError:
+                d[attr] = [v]
+        return d
+
+    def child_dict(self, d=None, postprocDict={}):
+        if d is None:
+            d = {}
+        for c in self.children:
+            if c.tokens and getattr(c, 'text', False):
+                attr = c.tokens[0][1:-1]
+                v = c.text
+                try:
+                    f = postprocDict[attr]
+                except KeyError:
+                    pass
+                else: # run postprocessor
+                    v = f(self, v)
+                try:
+                    d[attr].append(v)
+                except KeyError:
+                    d[attr] = [v]
+        return d
+
+    def add_metadata_attrs(self, postprocDict={}):
+        'add metadata as attributes on this obj'
+        self.__dict__.update(self.metadata_dict())
+        self.__dict__.update(self.child_dict(None, postprocDict))
+
+    def __getstate__(self):
+        d = dict(tokens=getattr(self, 'tokens', ()), 
+                 metadata=self.metadata_dict(),
+                 text=getattr(self, 'text', ()), 
+                 title=getattr(self, 'title', ()),
+                 children=self.children)
+        try:
+            d['tokenID'] = self.tokens[1]
+        except (AttributeError, IndexError):
+            pass
+        return d
+    def __setstate__(self, d):
+        self.tokens = d['tokens']
+        self._metadata = d['metadata']
+        self.text = d['text']
+        self.title = d['title']
+        self.children = d['children']
+        self.add_metadata_attrs(PostprocDict)
+
 
 class Block(BlockBase):
     'a RUsT block, containing text and / or subblocks'
@@ -257,51 +321,11 @@ class Block(BlockBase):
             self.metadata += metadata
         self.children = children
 
-    def metadata_dict(self):
-        '''save metadata as dict values containing list of one
-        or more values'''
-        d = {}
-        try:
-            metadata = self.metadata
-        except AttributeError:
-            return d
-        for line in metadata:
-            attr = line.split(':')[1]
-            v = line[len(attr) + 2:].lstrip()
-            try:
-                d[attr].append(v)
-            except KeyError:
-                d[attr] = [v]
-        return d
-
-    def child_dict(self, d=None, postprocDict={}):
-        if d is None:
-            d = {}
-        for c in self.children:
-            if c.tokens and getattr(c, 'text', False):
-                attr = c.tokens[0][1:-1]
-                v = c.text
-                try:
-                    f = postprocDict[attr]
-                except KeyError:
-                    pass
-                else: # run postprocessor
-                    v = f(self, v)
-                try:
-                    d[attr].append(v)
-                except KeyError:
-                    d[attr] = [v]
-        return d
-
-    def add_metadata_attrs(self, postprocDict={}):
-        'add metadata as attributes on this obj'
-        self.__dict__.update(self.metadata_dict())
-        self.__dict__.update(self.child_dict(None, postprocDict))
-
     def get_children(self, token):
         for c in self.children:
             if c.tokens and c.tokens[0] == token:
                 yield c
+
 
 class Section(Block):
     'a ReST section, containing text, subblocks and / or subsections'
@@ -455,8 +479,17 @@ def index_rust(tree, d=None, formatDict=None):
                 d[k] = node
     return d, formatDict
 
-def load_source_path(srcpath, filterFunc=lambda s:s.endswith('.rst'),
-                     ongoing=[], selectIndexCache={}):
+def find_source_files(srcpath, filterFunc=lambda s:s.endswith('.rst')):
+    srcfiles = []
+    for dirpath, dirnames, filenames in os.walk(srcpath):
+        if os.path.exists(os.path.join(dirpath, '.rust_ignore')):
+            continue # do not index files in this directory
+        for filename in filenames:
+            if filterFunc(filename):
+                srcfiles.append(os.path.join(dirpath, filename))
+    return srcfiles
+
+def load_source_path(srcpath, ongoing=[], **kwargs):
     srcpath = os.path.abspath(srcpath)
     if srcpath in ongoing:
         print 'WARNING: infinite .. select:: loop blocked:', srcpath
@@ -467,13 +500,7 @@ def load_source_path(srcpath, filterFunc=lambda s:s.endswith('.rst'),
     ## except KeyError:
     ##     pass
     if os.path.isdir(srcpath): # walk directory for all files
-        srcfiles = []
-        for dirpath, dirnames, filenames in os.walk(srcpath):
-            if os.path.exists(os.path.join(dirpath, '.rust_ignore')):
-                continue # do not index files in this directory
-            for filename in filenames:
-                if filterFunc(filename):
-                    srcfiles.append(os.path.join(dirpath, filename))
+        srcfiles = find_source_files(srcpath, **kwargs)
     else: # single file
         srcfiles = [srcpath]
     tree = parse_files(srcfiles)
@@ -507,10 +534,14 @@ def parse_select(rawtext, text, srcpath, filepath):
         srcpath = expand_path(srcpath, filepath)
     if os.path.isfile(srcpath) and not srcpath.lower().endswith('.rst'):
         return parse_file_select(rawtext, text, srcpath, filepath)
-    t = load_source_path(srcpath)
-    if t is None: # blocked infinite loop, so can't process directive
-        return None
-    srcDict, formatDict = t
+    if srcpath.startswith('mongodb:'):
+        import mongo
+        srcDict, formatDict = mongo.get_indexes(srcpath[8:])
+    else:
+        t = load_source_path(srcpath)
+        if t is None: # blocked infinite loop, so can't process directive
+            return None
+        srcDict, formatDict = t
     results = []
     stack = []
     for item in split_items(rawtext, text):
