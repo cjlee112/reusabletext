@@ -3,6 +3,7 @@ import graphviz
 import csv
 import shutil
 import subprocess
+import warnings
 
 
 def make_slides_and_csv(ctfile, imagepath, title='Concept Tests'):
@@ -47,29 +48,43 @@ def get_html(lines, **kwargs):
     s = '\n'.join(lines)
     return graphviz.trivial_html(s, **kwargs)
 
+def generate_question_attrs(questions, postprocDict, imageFiles):
+    for q in questions.children:
+        q.add_metadata_attrs(postprocDict)
+        s = get_html(q.text, filepath=getattr(q, 'filepath', None), 
+                     imageList=imageFiles)
+        answer = get_html(q.answer[0], 
+                          filepath=getattr(q, 'filepath', None),
+                          imageList=imageFiles)
+        errorModels = [get_html(e) for e in getattr(q, 'error', ())]
+        if hasattr(q, 'multichoice'): # multiple choice format
+            choices = [get_html(c) for c in q.multichoice[0]]
+            yield ('mc', q.title[0], s, answer, errorModels,
+                   q.correct, choices)
+        else:
+            yield ('text', q.title[0], s, answer, errorModels)
+
 def save_question_csv(questions, csvfile, postprocDict,
                       imagePath=None):
     ofile = open(csvfile, 'w')
     writer = csv.writer(ofile)
     imageFiles = []
-    for q in questions.children:
-        q.add_metadata_attrs(postprocDict)
-        s = get_html(q.text, filepath=q.filepath, imageList=imageFiles)
-        answer = get_html(q.answer[0], filepath=q.filepath,
-                          imageList=imageFiles)
-        errorModels = [get_html(e) for e in getattr(q, 'error', ())]
-        if hasattr(q, 'multichoice'): # multiple choice format
-            choices = [get_html(c) for c in q.multichoice[0]]
-            writer.writerow(('mc', q.title[0], s, answer, len(errorModels))
-                            + tuple(errorModels) + (q.correct,) + tuple(choices))
-        else:
-            writer.writerow(('text', q.title[0], s, answer, len(errorModels))
-                            + tuple(errorModels))
+    for t in generate_question_attrs(questions, postprocDict, imageFiles):
+        errorModels = t[4]
+        data = t[:4] + (len(errorModels),) + tuple(errorModels)
+        if t[0] == 'mc':
+            correct, choices = t[5:]
+            data = data + (correct,) + tuple(choices)
+        writer.writerow(data)
     if imageFiles:
         if imagePath:
             for path in imageFiles:
-                print 'Copying', path
-                shutil.copy(path, imagePath)
+                try:
+                    shutil.copy(path, imagePath)
+                    print 'Copied', path
+                except IOError:
+                    warnings.warn('failed: copy %s %s' 
+                                  % (path,imagePath))
         else:
             print 'WARNING: no path to copy image files:', imageFiles
     ofile.close()
