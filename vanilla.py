@@ -20,12 +20,14 @@ class Reformatter(object):
         except AttributeError:
             return # nothing to do on the root
         childDict = node.child_dict()
-        if node.tokens and node.tokens[0] == 'section':
+        if not getattr(node, 'tokens', False):
+            return
+        elif node.tokens[0] == 'section':
             if 'fallacy' in metadata.get('conceptType', ()):
                 node.formatID = 'fallacy'
             else:
                 node.formatID = 'section'
-        elif node.tokens and node.tokens[0] == ':question:':
+        elif node.tokens[0] == ':question:':
             hide_children(node) # don't show children separately
             if 'multichoice' in childDict:
                 node.formatID = 'multichoice-question'
@@ -33,9 +35,9 @@ class Reformatter(object):
                 node.formatID = 'multipart-question'
             else:
                 node.formatID = 'question'
-        elif node.tokens and node.tokens[0] in self.blockDict:
+        elif node.tokens[0] in self.blockDict:
             node.formatID = self.blockDict[node.tokens[0]]
-        elif node.tokens and node.tokens[0][1:-1] in self.formatDict:
+        elif node.tokens[0][1:-1] in self.formatDict:
             node.formatID = node.tokens[0][1:-1]
 
     def open(self, filepath):
@@ -52,7 +54,11 @@ class Reformatter(object):
             s = '\n'.join(getattr(node, 'text', []))
         else:
             node.add_metadata_attrs(parse.PostprocDict)
-            s = t.render(this=node, children=node.children,
+            try:
+                title = node.title[0]
+            except (AttributeError, IndexError):
+                title = 'Untitled ' + node.formatID
+            s = t.render(this=node, children=node.children, title=title,
                          indented=parse.indented, directive=parse.directive,
                          getattr=getattr, hasattr=hasattr, len=len, int=int,
                          make_title=make_title)
@@ -76,7 +82,7 @@ View `ReusableText Source <%s>`_
             self.close()
         
 
-def make_title(title, level):
+def make_title(title, level=0):
     sectionMarks = '-.+=_:'
     return title + '\n' + len(title) * sectionMarks[level]
 
@@ -137,3 +143,22 @@ Open Bioinformatics Teaching Consortium Release 0.1
         for target in files:
             s = reformat_file(reformatter, target)
             print >>ifile, '   ' + s[:s.rindex('.')]
+
+def mark_levels(node, level=0):
+    node.level = level
+    for c in node.children:
+        mark_levels(c, level + 1)
+
+
+def render_docs(docs, reformatter, outfile, prologue=None):
+    tree = parse.Document()
+    tree.children = docs
+    apply_walk(tree, reformatter)
+    mark_levels(tree)
+    reformatter.open(outfile)
+    if prologue:
+        reformatter.ifile.write(prologue)
+    try:
+        apply_walk(tree, reformatter.render)
+    finally:
+        reformatter.close()
