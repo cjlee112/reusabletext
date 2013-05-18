@@ -1,4 +1,4 @@
-from reusabletext import parse
+import parse
 import os
 
 def hide_children(node):

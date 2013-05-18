@@ -1,6 +1,6 @@
 :format: question
 
-  #. **{{- getattr(this, 'title', ('Question',))[0] -}}**
+  {{ make_title(title) }}
 
   {{ indented('   ', this.text) }}
 
@@ -16,7 +16,7 @@
 
 :format: section
 
-  {{ make_title(this.title[0], this.level) }}
+  {{ make_title(title, this.level) }}
 
   {% if getattr(this, 'conceptID', False) %}
   {% for conceptID in this.conceptID.split(',') %}
@@ -28,13 +28,13 @@
 
 :format: fallacy
 
-  {{ make_title('Fallacy: ' + this.title[0], this.level) }}
+  {{ make_title('Fallacy: ' + title, this.level) }}
 
   {{ '\n'.join(this.text) }}
 
 :format: multichoice-question
 
-  #. **{{- this.title[0] -}}**
+  {{ make_title(title) }}
 
   {{ indented('   ', this.text) }}
 
@@ -55,7 +55,7 @@
 
 :format: multipart-question
 
-  #. **{{- this.title[0] -}}**
+  {{ make_title(title) }}
 
   {% if this.text %}
   {{ indented('   ', this.text) -}}
