@@ -207,6 +207,8 @@ class BlockBase(object):
             c.children = list(self.children)
         if hasattr(self, 'metadata'):
             c.metadata = list(self.metadata)
+        if hasattr(self, '_metadata'):
+            c._metadata = self._metadata.copy()
         return c
     def walk(self):
         'DFS traversal of the tree'
