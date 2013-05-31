@@ -282,24 +282,28 @@ class BlockBase(object):
 class Block(BlockBase):
     'a RUsT block, containing text and / or subblocks'
     def __init__(self, tokens, rawtext, text, indent=0,
-                 blockTokens=defaultBlocks, filepath=None, **kwargs):
+                 blockTokens=defaultBlocks, filepath=None, mongoIndex=None,
+                 mongoFormats=None, **kwargs):
         self.tokens = tokens
         self.indent = indent
         self.filepath = filepath
         self.__dict__.update(kwargs)
         if tokens[0] == '.. select::':
-            result = parse_select(rawtext, text, tokens[1], filepath)
+            result = parse_select(rawtext, text, tokens[1], filepath, 
+                                  mongoIndex=mongoIndex,
+                                  mongoFormats=mongoFormats)
             if result is None: # couldn't process, so just leave as text
                 self.text = text
                 self.children = []
             else:
                 self.children = result
         elif rawtext: # parse sub-blocks, metadata
-            self.parse(rawtext, text, blockTokens)
+            self.parse(rawtext, text, blockTokens, mongoIndex=mongoIndex,
+                       mongoFormats=mongoFormats)
         else: # empty
             self.text = text
             self.children = []
-    def parse(self, rawtext, text, blockTokens):
+    def parse(self, rawtext, text, blockTokens, **kwargs):
         'parse into sub-blocks, if any, and extract metadata'
         children = []
         stop = 0
@@ -313,7 +317,7 @@ class Block(BlockBase):
                                             self.indent)
             children.append(Block(tokens, rawtext[start + 1:stop],
                                   text[start + 1:stop], indent, blockTokens,
-                                  self.filepath, parent=self))
+                                  self.filepath, parent=self, **kwargs))
         if not_empty(text[stop:]):
             addtext, metadata = \
                      extract_metadata(rawtext[stop:], text[stop:], self.indent)
@@ -526,7 +530,8 @@ def parse_select_item(item):
                 raise ValueError('bad SELECT parameter line: ' + pline)
     return tokens[0], params
 
-def parse_select(rawtext, text, srcpath, filepath):
+def parse_select(rawtext, text, srcpath, filepath, mongoIndex=None,
+                 mongoFormats=None):
     'parse a SELECT directive text, return forest of :select: nodes'
     if srcpath.startswith('http:') or srcpath.startswith('https:'):
         srcpath = download_file(srcpath) # download local file
@@ -535,8 +540,9 @@ def parse_select(rawtext, text, srcpath, filepath):
     if os.path.isfile(srcpath) and not srcpath.lower().endswith('.rst'):
         return parse_file_select(rawtext, text, srcpath, filepath)
     if srcpath.startswith('mongodb:'):
-        import mongo
-        srcDict, formatDict = mongo.get_indexes(srcpath[8:])
+        if not mongoIndex or not mongoFormats:
+            raise ValueError('attempted to select from mongodb but no mongoIndex')
+        srcDict, formatDict = mongoIndex, mongoFormats
     else:
         t = load_source_path(srcpath)
         if t is None: # blocked infinite loop, so can't process directive
