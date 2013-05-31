@@ -4,6 +4,7 @@ import csv
 import shutil
 import subprocess
 import warnings
+import os.path
 
 
 def make_slides_and_csv(ctfile, imagepath, title='Concept Tests'):
@@ -65,7 +66,7 @@ def generate_question_attrs(questions, postprocDict, imageFiles):
             yield ('text', q.title[0], s, answer, errorModels)
 
 def save_question_csv(questions, csvfile, postprocDict,
-                      imagePath=None):
+                      imagePath=None, imageSource=None):
     ofile = open(csvfile, 'w')
     writer = csv.writer(ofile)
     imageFiles = []
@@ -79,6 +80,8 @@ def save_question_csv(questions, csvfile, postprocDict,
     if imageFiles:
         if imagePath:
             for path in imageFiles:
+                if imageSource:
+                    path = os.path.join(imageSource, path)
                 try:
                     shutil.copy(path, imagePath)
                     print 'Copied', path
