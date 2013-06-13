@@ -28,6 +28,9 @@ docutilsMetadata = set((':width:',':alt:', ':height:', ':scale:',
                         ':rtrim:', ':trim:', ':start-line:', ':end-line:',
                         ':start-after:', ':end-before:', ':literal:',
                         ':code:', ':number-lines:', ':tab-width:',
+                        ':Author:', ':Authors:', ':Organization:', 
+                        ':Contact:', ':Address:', ':Version:', ':Status:', 
+                        ':Date:', ':Copyright:', ':Dedication:', ':Abstract:', 
                         ))
 
 def get_indent(i, rawtext, text):
@@ -414,6 +417,17 @@ def parse_rust(rawtext, filepath=None, doc=None, **kwargs):
         doc.append(Section(t, rawtext, text, filepath=filepath, **kwargs))
     return doc
 
+def parse_rust_docinfo(rawtext, filepath=None, doc=None, **kwargs):
+    doc = parse_rust(rawtext, filepath, doc, **kwargs)
+    title = author = None
+    if len(doc.children) > 0:
+        for s in doc.children[0].text:
+            if s.startswith('.. title::'):
+                title = s[11:]
+            elif s.startswith(':Author:'):
+                author = s[8:].strip()
+    return doc, title, author
+
 def parse_file(filename, **kwargs):
     'read RUsT from specified file'
     with open(filename, 'rU') as ifile:
@@ -642,6 +656,7 @@ def parse_pdf_select(rawtext, text, srcpath, filepath,
 def download_file(url, downloadDir='_downloaded'):
     'get the specified URL and return the downloaded file path'
     path = os.path.join(downloadDir, url.split('/')[-1])
+    path = os.path.abspath(path)
     if os.path.isfile(path): # already downloaded, nothing to do
         warnings.warn('%s already downloaded, cached as %s' % (url, path))
         return path
