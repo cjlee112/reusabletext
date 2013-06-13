@@ -21,7 +21,7 @@ def make_slides_and_csv(ctfile, imagepath, title='Concept Tests'):
         ofile.write(parse.get_text(tree))
     return rstout, tree
 
-def make_tex(slidesfile, usePDFPages=False):
+def make_tex(slidesfile, usePDFPages=False, beamerTheme=None, docTitle=None):
     'convert RST slides to TEX using rst2beamer'
     import rst2beamer
     description = 'rst2beamer output'
@@ -30,6 +30,10 @@ def make_tex(slidesfile, usePDFPages=False):
     argv = ['--overlaybullets=false', slidesfile, texfile]
     if usePDFPages:
         argv.insert(1, '--use-pdfpages')
+    if beamerTheme:
+        argv.insert(1, '--theme=' + beamerTheme)
+    if docTitle:
+        argv.insert(1, '--doctitle=' + docTitle)
     print 'writing', texfile
     rst2beamer.publish_cmdline(writer=rst2beamer.BeamerWriter(),
                                description=description,
