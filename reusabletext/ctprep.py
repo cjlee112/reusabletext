@@ -7,14 +7,15 @@ import warnings
 import os.path
 
 
-def make_slides_and_csv(ctfile, imagepath, title='Concept Tests'):
+def make_slides_and_csv(ctfile, imagepath, title='Concept Tests', 
+                        globalErrors=()):
     'produces CSV for Socraticqs to load, and RST for rst2beamer to convert'
     tree = parse.process_select(ctfile)
     questions = get_questions(tree)
     ctstem = ctfile.split('.')[0]
     print 'writing', ctstem + '.csv'
     save_question_csv(questions, ctstem + '.csv', parse.PostprocDict,
-                      imagepath)
+                      imagepath, globalErrors=globalErrors)
     rstout =  ctstem + '_slides.rst'
     print 'writing', rstout
     with open(rstout, 'w') as ofile:
@@ -70,13 +71,13 @@ def generate_question_attrs(questions, postprocDict, imageFiles):
             yield ('text', q.title[0], s, answer, errorModels)
 
 def save_question_csv(questions, csvfile, postprocDict,
-                      imagePath=None, imageSource=None):
+                      imagePath=None, imageSource=None, globalErrors=()):
     ofile = open(csvfile, 'w')
     writer = csv.writer(ofile)
     imageFiles = []
     for t in generate_question_attrs(questions, postprocDict, imageFiles):
-        errorModels = t[4]
-        data = t[:4] + (len(errorModels),) + tuple(errorModels)
+        errorModels = tuple(t[4]) + globalErrors
+        data = t[:4] + (len(errorModels),) + errorModels
         if t[0] == 'mc':
             correct, choices = t[5:]
             data = data + (correct,) + tuple(choices)
@@ -103,13 +104,22 @@ def check_fileselect(tree):
         if getattr(node, 'tokens', ('ignore',))[0] == ':fileselect:':
             return True
 
+defaultErrorModels = (
+    "some people misread the question (ABORT).",
+    "some people didn't know a basic definition needed for this question (ABORT).",
+    "some people didn't know how to get started -- failed to apply concept(s) that they knew, e.g. due to 'trying to remember the answer' (ABORT).",
+    "some people got hung up on a detail and didn't think through the main question (ABORT).",
+    "This question is mis-phrased: its literal meaning doesn't really ask what you claimed (FAIL).",
+)
+
 if __name__ == '__main__':
     import sys
     try:
         infile, imagepath = sys.argv[1:]
     except ValueError:
         print 'usage: %s INRSTFILE IMAGEDIR' % sys.argv[0]
-    rstout, tree = make_slides_and_csv(infile, imagepath)
+    rstout, tree = make_slides_and_csv(infile, imagepath, 
+                                       globalErrors=defaultErrorModels)
     usePDFPages = check_fileselect(tree) # do we need pdfpages package?
     texfile = make_tex(rstout, usePDFPages) # generate beamer latex
     print 'running pdflatex...'
