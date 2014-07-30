@@ -3,6 +3,7 @@ import shutil
 import urllib2
 import subprocess
 import warnings
+import codecs
 try:
     from jinja2 import Template
 except ImportError:
@@ -430,7 +431,7 @@ def parse_rust_docinfo(rawtext, filepath=None, doc=None, **kwargs):
 
 def parse_file(filename, **kwargs):
     'read RUsT from specified file'
-    with open(filename, 'rU') as ifile:
+    with codecs.open(filename, 'rU', encoding='utf-8') as ifile:
         rawtext = ifile.read().split('\n')
     return parse_rust(rawtext, filename, **kwargs)
     
@@ -584,8 +585,9 @@ def parse_select(rawtext, text, srcpath, filepath, mongoIndex=None,
         ## stack.append((indent, node)) # push onto stack
     return results
 
-includePDFformats = {
-    'includepdf':Template('''
+try:
+    includePDFformats = {
+        'includepdf':Template('''
 .. raw:: latex
 
    %%rst2beamer:endframe
@@ -596,6 +598,8 @@ includePDFformats = {
 
 ''')
     }
+except NameError:
+    includePDFformats = {}
 
 def expand_path(path, relativeToFile):
     'expand env vars, ~, relative to file path if not absolute'
@@ -818,7 +822,7 @@ PostprocDict = {'multichoice':multichoice_pp}
 
 def get_text(tree, postprocDict=PostprocDict, **kwargs):
     l = get_text_list(tree, postprocDict, **kwargs)
-    return '\n'.join(l)
+    return u'\n'.join(l)
 
 if __name__ == '__main__':
     import sys
