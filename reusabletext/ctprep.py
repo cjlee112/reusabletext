@@ -201,7 +201,8 @@ def save_section_csv(lesson, metadata, writer, func, token='lesson',
     rustID = metadata.get('ID', ('',))[0]
     sourceDB, sourceID = metadata.get('sourceDB', (':',))[0].split(':')
     data = (token, lesson.nodeID, rustID,
-            getattr(lesson, 'title', ('',))[0], func(lesson.text),
+            getattr(lesson, 'title', (' '.join(token.split('-')),))[0],
+            func(lesson.text),
             sourceDB, sourceID)
     if linkParent:
         data += (linkParent,)
