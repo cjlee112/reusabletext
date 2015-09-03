@@ -220,6 +220,12 @@ class BlockBase(object):
             for node in c.walk():
                 yield node
         yield self
+    def walk_bfs(self):
+        'BFS traversal of the tree'
+        yield self
+        for c in self.children:
+            for node in c.walk_bfs():
+                yield node
     def metadata_dict(self):
         '''save metadata as dict values containing list of one
         or more values'''
@@ -335,7 +341,35 @@ class Block(BlockBase):
         for c in self.children:
             if c.tokens and c.tokens[0] == token:
                 yield c
-
+    def list_repr(self, textFunc, postprocDict):
+        'get list of dict representation of this subtree'
+        if self.tokens[0] == '.. select::': # replace by list of children
+            l = []
+            for c in self.children:
+                l += c.list_repr(textFunc, postprocDict)
+            return l
+        elif self.tokens[0] == ':select:': # apply template formatting
+            text = get_text_select(self, postprocDict)
+            d = dict(text=textFunc(text), kind='selection')
+            try:
+                d['title'] = self.selectParams['title']
+            except (KeyError, AttributeError):
+                pass
+        else: # just return dict of metadata and child attrs
+            d = dict(text=textFunc(self.text), kind=self.tokens[0][1:-1])
+            if len(self.tokens) >= 2 and self.tokens[1]:
+                d['rustID'] = self.tokens[1]
+            d.update(self.metadata_dict())
+            if 'title' in d:
+                d['title'] = ' '.join(d['title'])
+            for k, v in self.child_dict(postprocDict=postprocDict).items():
+                if k == 'multichoice':
+                    for text in v[0]: # add as lettered item list
+                        d['text'] = d['text'] + '\n\nA. ' + ' '.join(text)
+                else:
+                    d[k] = [textFunc(text) for text in v]
+        return [d]
+        
 
 class Section(Block):
     'a ReST section, containing text, subblocks and / or subsections'
@@ -359,6 +393,26 @@ class Section(Block):
         for i,line in enumerate(text[start:stop]):
             if line.startswith('.. glossary::'):
                 save_glossary(self, i, rawtext[start:stop], text[start:stop])
+    def list_repr(self, textFunc, postprocDict):
+        'get list of dicts repr of this subtree'
+        l = []
+        d = dict(text=textFunc(self.text), kind='section',
+                 title=' '.join(self.title),
+                 level=self.level)
+        if len(self.tokens) >= 2 and self.tokens[1]:
+            d['rustID'] = self.tokens[1]
+        d.update(self.metadata_dict())
+        children = []
+        for c in self.children:
+            if isinstance(c, Section): # treat subsections as children
+                children += c.list_repr(textFunc, postprocDict)
+            else: # do not treat blocks as children
+                l += c.list_repr(textFunc, postprocDict)
+        if children:
+            d['children'] = children
+        if d['title'] or children: # include this section if not empty
+            l = [d] + l
+        return l
 
 def save_glossary(node, start, rawtext, text):
     'save glossary as node list on node.glossary'
@@ -408,6 +462,12 @@ class Document(BlockBase):
         self.children = []
     def append(self, v):
         self.children.append(v)
+    def list_repr(self, textFunc, postprocDict):
+        'list of dicts repr of the tree'
+        l = []
+        for c in self.children:
+            l += c.list_repr(textFunc, postprocDict)
+        return l
 
 def parse_rust(rawtext, filepath=None, doc=None, **kwargs):
     'top level block parser, returns list of sections'
@@ -787,28 +847,30 @@ def process_select(selectFile):
     return selection
 
 
+def get_text_select(node, postprocDict, **kwargs):
+    'get template formatted text from :select: node'
+    node.add_metadata_attrs(postprocDict)
+    for c in node.children:
+        c.add_metadata_attrs(postprocDict)
+    nodeParams = kwargs.copy()
+    nodeParams.update(node.selectParams)
+    try:
+        formatID = nodeParams['format']
+    except KeyError:
+        return getattr(node, 'text', [])
+    t = node.formatDict[formatID]
+    s = t.render(this=node, children=node.children,
+                 indented=indented, directive=directive,
+                 getattr=getattr, len=len, int=int,
+                 kwargs=nodeParams, **nodeParams)
+    return [s]
+
 def get_text_list(tree, postprocDict, **kwargs):
     'walk tree and extract text, applying bound templates'
     l = []
     for node in tree.children:
         if hasattr(node, 'selectParams'):
-            node.add_metadata_attrs(postprocDict)
-            for c in node.children:
-                c.add_metadata_attrs(postprocDict)
-            nodeParams = kwargs.copy()
-            nodeParams.update(node.selectParams)
-            try:
-                formatID = nodeParams['format']
-            except KeyError:
-                l += getattr(node, 'text', [])
-            else:
-                t = node.formatDict[formatID]
-                s = t.render(this=node, children=node.children,
-                             indented=indented, directive=directive,
-                             getattr=getattr, len=len, int=int,
-                             kwargs=nodeParams, **nodeParams)
-                l.append(s)
-                continue
+            l += get_text_select(node, postprocDict, **kwargs)
         else:
             title = getattr(node, 'title', (None,))[0]
             if title: # add reST title

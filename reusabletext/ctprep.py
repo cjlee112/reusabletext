@@ -109,17 +109,18 @@ def flag_rst_images(lines, tag='STATICIMAGE/'):
         
 
 
-def generate_question_attrs(questions, postprocDict, imageFiles):
+def generate_question_attrs(questions, postprocDict, imageFiles,
+                            reformat=get_html):
     for q in questions.children:
         q.add_metadata_attrs(postprocDict)
-        s = get_html(q.text, filepath=getattr(q, 'filepath', None), 
+        s = reformat(q.text, filepath=getattr(q, 'filepath', None), 
                      imageList=imageFiles)
-        answer = get_html(q.answer[0], 
+        answer = reformat(q.answer[0], 
                           filepath=getattr(q, 'filepath', None),
                           imageList=imageFiles)
-        errorModels = [get_html(e) for e in getattr(q, 'error', ())]
+        errorModels = [reformat(e) for e in getattr(q, 'error', ())]
         if hasattr(q, 'multichoice'): # multiple choice format
-            choices = [get_html(c) for c in q.multichoice[0]]
+            choices = [reformat(c) for c in q.multichoice[0]]
             yield ('mc', q.title[0], s, answer, errorModels,
                    q.correct, choices)
         else:
